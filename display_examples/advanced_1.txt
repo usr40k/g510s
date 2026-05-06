@@ -30,4 +30,4 @@ RECT,62,0,1,43
 GRAPH,BATCHBAR,!66,!0,90,30// printf "@vizu"  //
 
 # Tailscale status
-66,33,L,0,1// tailscale status --json | jq -r 'if .Self.Online == true and .TailscaleIPs[0] != null then "ts: \(.TailscaleIPs[0])" else "ts: offline" end' //
+66,33,L,0,0// tailscale status --json | jq -r 'if .Self.Online == true and .TailscaleIPs[0] != null then "ts: \(.TailscaleIPs[0])" else "ts: offline (\(.BackendState))" end' //
