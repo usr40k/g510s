@@ -1,0 +1,37 @@
+
+# --- Degrees of hue per render: 3 gives a full cycle every 120 renders (~2 min) ---
+%speed // echo 3 //
+
+# --- Next hue ---
+%hue // cat $HOME/.config/g510s/rainbow.hue 2>/dev/null || echo 0 //
+%hue // echo $(( (@hue + @speed) % 360 )) //
+%save // echo @hue > $HOME/.config/g510s/rainbow.hue //
+
+# --- HSV (full saturation/value) to RGB, straight from the hue ---
+%rgb // echo @hue | awk '{ h = $1 / 60; i = int(h); f = h - i; q = 1 - f; if (i == 0) printf "255 %d 0", f * 255; else if (i == 1) printf "%d 255 0", q * 255; else if (i == 2) printf "0 255 %d", f * 255; else if (i == 3) printf "0 %d 255", q * 255; else if (i == 4) printf "%d 0 255", f * 255; else printf "255 0 %d", q * 255 }' //
+%r // echo @rgb | cut -d" " -f1 //
+%g // echo @rgb | cut -d" " -f2 //
+%b // echo @rgb | cut -d" " -f3 //
+
+!led @r @g @b
+
+# --- Hue readout ---
+14,3,L,0,1,// printf "rainbow  hue %3d" @hue //
+
+# --- RGB readout ---
+14,13,L,0,1,// printf "rgb %3d %3d %3d" @r @g @b //
+
+# --- Sweep marker travelling around the 0..359 scale ---
+%px // echo $(( @hue * 157 / 359 )) //
+RECT,@px,21,3,7,1
+
+# --- Hue as a bar ---
+GRAPH,BAR,10,30,140,8,// echo @hue //
+
+# --- Ticks every 60 degrees ---
+%i // echo 0 //
+WHILE,test @i -lt 6
+  %tx // echo $(( 10 + @i * 28 )) //
+  RECT,@tx,38,1,3,1
+  %i // echo $(( @i + 1 )) //
+ENDWHILE

@@ -26,6 +26,9 @@ Graphical utility for Logitech G510 and G510s keyboards on Linux.
 * Handles device hotplug events (on-device audio)
 * DBUS profile and color control
 * Advanced custom LCD configurations
+* Logic flow in display scripts: `IF`/`ELIF`/`ELSE`/`ENDIF` and `WHILE`/`ENDWHILE` with `BREAK`/`CONTINUE`
+* `!led` commands to drive the keyboard LED colour from a display script (without changing the UI colour)
+* Colour picker with RGB spin buttons, hex input and a graphical picker
 * libg15daemon-client compatibility
 * Terminal emulator mode (display terminal output on LCD)
 * Display effects: invert, brightness simulation, dither, scanline, color modes
@@ -99,6 +102,146 @@ You can configure display rendering behavior at runtime by adding `!set` command
 !set cache_runs 5
 !set cache_time 10
 ```
+
+---
+
+## Logic Flow (if / while)
+
+The display script supports conditionals and loops. Blocks must always be
+closed, and lines are trimmed of surrounding whitespace, so indentation is
+free-form.
+
+### Conditions
+
+`IF`, `ELIF`, `ELSE`, `ENDIF`, `WHILE` and `BREAK`/`CONTINUE` all take a shell
+command. Before the command runs, `@variables` are substituted, so counters and
+computed values can be used directly.
+
+How the result becomes true/false:
+
+* **No output** -> the command's **exit status** decides (0 = true). This makes
+  `test`, `[ ... ]`, `grep -q`, `pgrep`, `ping -c1`, etc. work as expected.
+* **Output is a number** -> true when non-zero.
+* **Output is a word** -> `true`/`yes`/`on` are true, `false`/`no`/`off` are
+  false, any other text is true.
+
+### Conditionals
+
+```g510s
+IF,ping -c1 -W1 1.1.1.1 >/dev/null 2>&1
+  10,10,L,0,0,// echo "online" //
+ELIF,systemctl -q is-active NetworkManager
+  10,10,L,0,0,// echo "local only" //
+ELSE
+  10,10,L,0,0,// echo "offline" //
+ENDIF
+```
+
+### Loops
+
+```g510s
+%i // echo 0 //
+WHILE,test @i -lt 5
+  RECT,@i,5,20,10,1            # one block per iteration
+  %i // echo $(( @i + 1 )) //
+ENDWHILE
+```
+
+* `WHILE,<command>` re-evaluates its command on every iteration.
+* `ENDWHILE` jumps back to the `WHILE` line and re-tests the condition.
+* `BREAK` leaves the innermost loop immediately.
+* `CONTINUE` jumps straight back to the `WHILE` condition.
+* Loops may be nested (up to 16 deep) and may contain `IF` blocks.
+* A safety cap of 10000 iterations per loop stops a stuck condition from
+  hanging the daemon; execution then continues after the matching `ENDWHILE`.
+
+Assigning a variable that already exists updates it in place, which is what
+makes counters work: `%i // echo $(( @i + 1 )) //`.
+
+### Drawing inside a loop
+
+Because the loop body is re-rendered on every pass, coordinates may use the
+loop variable (`@i`) to lay out elements dynamically. Note that `RECT`, `GRAPH`
+and friends expect plain numbers, so any arithmetic has to go through a `%var`:
+
+```g510s
+# A 12-bar spectrum row drawn from a pipe separated list of values
+%vals // amixer get Master | grep -o '[0-9]*%' | tr -d '%' | tr '\n' ' ' //
+
+%i // echo 0 //
+WHILE,test @i -lt 12
+  %v // echo @vals | awk '{ printf "%d", $(( @i + 1 )) + 0 }' //
+  %x // echo $(( @i * 13 )) //
+  %y // echo $(( 41 - @v )) //
+  %h // echo $(( @v + 1 )) //
+  RECT,@x,@y,11,@h,1
+  %i // echo $(( @i + 1 )) //
+ENDWHILE
+```
+
+See `display_examples/loops.txt` for a complete working script.
+
+---
+
+## Keyboard LED commands (`!led`)
+
+These commands drive the physical LED backlight from the display script.
+They **do not** change the colour stored in the GUI, so the colour you picked
+per profile (M1/M2/M3/MR) stays untouched and is still what gets saved.
+
+| Command | Effect |
+|---------|--------|
+| `!led <r> <g> <b>` | Set the LED colour (0-255 each, commas or spaces allowed) |
+| `!led off` | Turn the LED off (`!led 0 0 0`) |
+| `!led ui` | Restore the colour selected in the GUI for the active profile |
+
+**Example:**
+
+```g510s
+!led 255 32 64            # pink backlight while this script runs
+!led ui                   # hand control back to the GUI colour
+```
+
+Values are clamped to 0-255, so out-of-range numbers are safe.
+
+### Backlight effects (ready-made examples)
+
+Because the display script re-runs about once a second, `!led` can be used to
+build timed effects. Three complete scripts are in `display_examples/`:
+
+| Script | What it does |
+|--------|--------------|
+| `lock_fade.txt` | Ramps the backlight down to black while the screen is locked, then back up on unlock |
+| `rainbow.txt` | Cycles the backlight through the full hue circle, with the hue and RGB shown on the LCD |
+| `combined.txt` | Rainbow while unlocked, smooth fade to black when locked, then back to the rainbow |
+
+All three carry their state in a small file under `~/.config/g510s/` (the
+brightness level / hue have to survive between renders, because script
+variables are reset on every pass):
+
+```
+$HOME/.config/g510s/fade.level     # lock_fade   -> brightness 0..255
+$HOME/.config/g510s/rainbow.hue    # rainbow     -> hue 0..359
+$HOME/.config/g510s/combo.state    # combined    -> "<hue> <level>"
+```
+
+Lock state comes from `loginctl` (systemd-logind), falling back to the GNOME
+screensaver D-Bus interface. If neither works, set `%force` at the top of the
+script to `1` to simulate a locked screen:
+
+```g510s
+%force // echo 0 //   # change to 1 to test the locked behaviour
+```
+
+Worth tuning per script:
+
+* `%step` / `%fade` - brightness units per render. 255/step gives the seconds
+  to fade at roughly one render per second.
+* `%speed` - hue degrees per render, so 360/speed is the length of one cycle.
+* `%br`, `%bg`, `%bb` - the base colour that `lock_fade` fades (default soft blue).
+
+Remember that each iteration of a loop (and each `%var` line) starts a shell
+process, so keep these values modest.
 
 ---
 

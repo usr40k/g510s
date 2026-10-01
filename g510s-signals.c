@@ -54,66 +54,29 @@ void on_menuabout_activate(GtkMenuItem *menuitem, gpointer aboutdialog) {
   gtk_widget_show(aboutdialog);
 }
 
-// scale actions
-void on_red_adj_m1_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.m1.red = gtk_range_get_value(scale);
-  update = 1;
-}
+// --- Colour slider handlers -------------------------------------------------
+// A single template generates the handler for every profile/channel pair,
+// replacing twelve hand-written functions with one macro and twelve one-liners.
+// `field` is a member path such as "m1.red" and `prof` is the profile number.
+#define DEFINE_COLOR_HANDLER(fn, field, prof)          \
+  void fn(GtkAdjustment *adjustment, gpointer scale) { \
+    (void)adjustment;                                  \
+    g510s_data.field = gtk_range_get_value(scale);     \
+    update = prof;                                     \
+  }
 
-void on_green_adj_m1_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.m1.green = gtk_range_get_value(scale);
-  update = 1;
-}
-
-void on_blue_adj_m1_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.m1.blue = gtk_range_get_value(scale);
-  update = 1;
-}
-
-void on_red_adj_m2_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.m2.red = gtk_range_get_value(scale);
-  update = 2;
-}
-
-void on_green_adj_m2_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.m2.green = gtk_range_get_value(scale);
-  update = 2;
-}
-
-void on_blue_adj_m2_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.m2.blue = gtk_range_get_value(scale);
-  update = 2;
-}
-
-void on_red_adj_m3_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.m3.red = gtk_range_get_value(scale);
-  update = 3;
-}
-
-void on_green_adj_m3_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.m3.green = gtk_range_get_value(scale);
-  update = 3;
-}
-
-void on_blue_adj_m3_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.m3.blue = gtk_range_get_value(scale);
-  update = 3;
-}
-
-void on_red_adj_mr_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.mr.red = gtk_range_get_value(scale);
-  update = 4;
-}
-
-void on_green_adj_mr_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.mr.green = gtk_range_get_value(scale);
-  update = 4;
-}
-
-void on_blue_adj_mr_value_changed(GtkAdjustment *adjustment, gpointer scale) {
-  g510s_data.mr.blue = gtk_range_get_value(scale);
-  update = 4;
-}
+DEFINE_COLOR_HANDLER(on_red_adj_m1_value_changed,   m1.red,   1)
+DEFINE_COLOR_HANDLER(on_green_adj_m1_value_changed, m1.green, 1)
+DEFINE_COLOR_HANDLER(on_blue_adj_m1_value_changed,  m1.blue,  1)
+DEFINE_COLOR_HANDLER(on_red_adj_m2_value_changed,   m2.red,   2)
+DEFINE_COLOR_HANDLER(on_green_adj_m2_value_changed, m2.green, 2)
+DEFINE_COLOR_HANDLER(on_blue_adj_m2_value_changed,  m2.blue,  2)
+DEFINE_COLOR_HANDLER(on_red_adj_m3_value_changed,   m3.red,   3)
+DEFINE_COLOR_HANDLER(on_green_adj_m3_value_changed, m3.green, 3)
+DEFINE_COLOR_HANDLER(on_blue_adj_m3_value_changed,  m3.blue,  3)
+DEFINE_COLOR_HANDLER(on_red_adj_mr_value_changed,   mr.red,   4)
+DEFINE_COLOR_HANDLER(on_green_adj_mr_value_changed, mr.green, 4)
+DEFINE_COLOR_HANDLER(on_blue_adj_mr_value_changed,  mr.blue,  4)
 
 // button actions
 void on_closebutton_clicked(GtkButton *button, gpointer window) {
@@ -129,362 +92,29 @@ void on_indicator_menuhide_activate(GtkMenuItem *menuitem, gpointer window) {
   gtk_widget_hide(window);
 }
 
-void on_entry_m1g1_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g1, 0, sizeof(g510s_data.m1.g1));
-  strncpy(g510s_data.m1.g1, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g1));
-}
-
-void on_entry_m1g2_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g2, 0, sizeof(g510s_data.m1.g2));
-  strncpy(g510s_data.m1.g2, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g2));
-}
-
-void on_entry_m1g3_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g3, 0, sizeof(g510s_data.m1.g3));
-  strncpy(g510s_data.m1.g3, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g3));
-}
-
-void on_entry_m1g4_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g4, 0, sizeof(g510s_data.m1.g4));
-  strncpy(g510s_data.m1.g4, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g4));
-}
-
-void on_entry_m1g5_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g5, 0, sizeof(g510s_data.m1.g5));
-  strncpy(g510s_data.m1.g5, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g5));
-}
-
-void on_entry_m1g6_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g6, 0, sizeof(g510s_data.m1.g6));
-  strncpy(g510s_data.m1.g6, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g6));
-}
-
-void on_entry_m1g7_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g7, 0, sizeof(g510s_data.m1.g7));
-  strncpy(g510s_data.m1.g7, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g7));
-}
-
-void on_entry_m1g8_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g8, 0, sizeof(g510s_data.m1.g8));
-  strncpy(g510s_data.m1.g8, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g8));
-}
-
-void on_entry_m1g9_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g9, 0, sizeof(g510s_data.m1.g9));
-  strncpy(g510s_data.m1.g9, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g9));
-}
-
-void on_entry_m1g10_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g10, 0, sizeof(g510s_data.m1.g10));
-  strncpy(g510s_data.m1.g10, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g10));
-}
-
-void on_entry_m1g11_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g11, 0, sizeof(g510s_data.m1.g11));
-  strncpy(g510s_data.m1.g11, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g11));
-}
-
-void on_entry_m1g12_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g12, 0, sizeof(g510s_data.m1.g12));
-  strncpy(g510s_data.m1.g12, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g12));
-}
-
-void on_entry_m1g13_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g13, 0, sizeof(g510s_data.m1.g13));
-  strncpy(g510s_data.m1.g13, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g13));
-}
-
-void on_entry_m1g14_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g14, 0, sizeof(g510s_data.m1.g14));
-  strncpy(g510s_data.m1.g14, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g14));
-}
-
-void on_entry_m1g15_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g15, 0, sizeof(g510s_data.m1.g15));
-  strncpy(g510s_data.m1.g15, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g15));
-}
-
-void on_entry_m1g16_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g16, 0, sizeof(g510s_data.m1.g16));
-  strncpy(g510s_data.m1.g16, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g16));
-}
-
-void on_entry_m1g17_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g17, 0, sizeof(g510s_data.m1.g17));
-  strncpy(g510s_data.m1.g17, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g17));
-}
-
-void on_entry_m1g18_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m1.g18, 0, sizeof(g510s_data.m1.g18));
-  strncpy(g510s_data.m1.g18, gtk_entry_get_text(entry), sizeof(g510s_data.m1.g18));
-}
-
-void on_entry_m2g1_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g1, 0, sizeof(g510s_data.m2.g1));
-  strncpy(g510s_data.m2.g1, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g1));
-}
-
-void on_entry_m2g2_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g2, 0, sizeof(g510s_data.m2.g2));
-  strncpy(g510s_data.m2.g2, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g2));
-}
-
-void on_entry_m2g3_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g3, 0, sizeof(g510s_data.m2.g3));
-  strncpy(g510s_data.m2.g3, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g3));
-}
-
-void on_entry_m2g4_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g4, 0, sizeof(g510s_data.m2.g4));
-  strncpy(g510s_data.m2.g4, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g4));
-}
-
-void on_entry_m2g5_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g5, 0, sizeof(g510s_data.m2.g5));
-  strncpy(g510s_data.m2.g5, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g5));
-}
-
-void on_entry_m2g6_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g6, 0, sizeof(g510s_data.m2.g6));
-  strncpy(g510s_data.m2.g6, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g6));
-}
-
-void on_entry_m2g7_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g7, 0, sizeof(g510s_data.m2.g7));
-  strncpy(g510s_data.m2.g7, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g7));
-}
-
-void on_entry_m2g8_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g8, 0, sizeof(g510s_data.m2.g8));
-  strncpy(g510s_data.m2.g8, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g8));
-}
-
-void on_entry_m2g9_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g9, 0, sizeof(g510s_data.m2.g9));
-  strncpy(g510s_data.m2.g9, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g9));
-}
-
-void on_entry_m2g10_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g10, 0, sizeof(g510s_data.m2.g10));
-  strncpy(g510s_data.m2.g10, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g10));
-}
-
-void on_entry_m2g11_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g11, 0, sizeof(g510s_data.m2.g11));
-  strncpy(g510s_data.m2.g11, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g11));
-}
-
-void on_entry_m2g12_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g12, 0, sizeof(g510s_data.m2.g12));
-  strncpy(g510s_data.m2.g12, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g12));
-}
-
-void on_entry_m2g13_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g13, 0, sizeof(g510s_data.m2.g13));
-  strncpy(g510s_data.m2.g13, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g13));
-}
-
-void on_entry_m2g14_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g14, 0, sizeof(g510s_data.m2.g14));
-  strncpy(g510s_data.m2.g14, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g14));
-}
-
-void on_entry_m2g15_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g15, 0, sizeof(g510s_data.m2.g15));
-  strncpy(g510s_data.m2.g15, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g15));
-}
-
-void on_entry_m2g16_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g16, 0, sizeof(g510s_data.m2.g16));
-  strncpy(g510s_data.m2.g16, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g16));
-}
-
-void on_entry_m2g17_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g17, 0, sizeof(g510s_data.m2.g17));
-  strncpy(g510s_data.m2.g17, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g17));
-}
-
-void on_entry_m2g18_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m2.g18, 0, sizeof(g510s_data.m2.g18));
-  strncpy(g510s_data.m2.g18, gtk_entry_get_text(entry), sizeof(g510s_data.m2.g18));
-}
-
-void on_entry_m3g1_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g1, 0, sizeof(g510s_data.m3.g1));
-  strncpy(g510s_data.m3.g1, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g1));
-}
-
-void on_entry_m3g2_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g2, 0, sizeof(g510s_data.m3.g2));
-  strncpy(g510s_data.m3.g2, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g2));
-}
-
-void on_entry_m3g3_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g3, 0, sizeof(g510s_data.m3.g3));
-  strncpy(g510s_data.m3.g3, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g3));
-}
-
-void on_entry_m3g4_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g4, 0, sizeof(g510s_data.m3.g4));
-  strncpy(g510s_data.m3.g4, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g4));
-}
-
-void on_entry_m3g5_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g5, 0, sizeof(g510s_data.m3.g5));
-  strncpy(g510s_data.m3.g5, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g5));
-}
-
-void on_entry_m3g6_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g6, 0, sizeof(g510s_data.m3.g6));
-  strncpy(g510s_data.m3.g6, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g6));
-}
-
-void on_entry_m3g7_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g7, 0, sizeof(g510s_data.m3.g7));
-  strncpy(g510s_data.m3.g7, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g7));
-}
-
-void on_entry_m3g8_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g8, 0, sizeof(g510s_data.m3.g8));
-  strncpy(g510s_data.m3.g8, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g8));
-}
-
-void on_entry_m3g9_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g9, 0, sizeof(g510s_data.m3.g9));
-  strncpy(g510s_data.m3.g9, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g9));
-}
-
-void on_entry_m3g10_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g10, 0, sizeof(g510s_data.m3.g10));
-  strncpy(g510s_data.m3.g10, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g10));
-}
-
-void on_entry_m3g11_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g11, 0, sizeof(g510s_data.m3.g11));
-  strncpy(g510s_data.m3.g11, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g11));
-}
-
-void on_entry_m3g12_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g12, 0, sizeof(g510s_data.m3.g12));
-  strncpy(g510s_data.m3.g12, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g12));
-}
-
-void on_entry_m3g13_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g13, 0, sizeof(g510s_data.m3.g13));
-  strncpy(g510s_data.m3.g13, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g13));
-}
-
-void on_entry_m3g14_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g14, 0, sizeof(g510s_data.m3.g14));
-  strncpy(g510s_data.m3.g14, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g14));
-}
-
-void on_entry_m3g15_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g15, 0, sizeof(g510s_data.m3.g15));
-  strncpy(g510s_data.m3.g15, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g15));
-}
-
-void on_entry_m3g16_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g16, 0, sizeof(g510s_data.m3.g16));
-  strncpy(g510s_data.m3.g16, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g16));
-}
-
-void on_entry_m3g17_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g17, 0, sizeof(g510s_data.m3.g17));
-  strncpy(g510s_data.m3.g17, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g17));
-}
-
-void on_entry_m3g18_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.m3.g18, 0, sizeof(g510s_data.m3.g18));
-  strncpy(g510s_data.m3.g18, gtk_entry_get_text(entry), sizeof(g510s_data.m3.g18));
-}
-
-void on_entry_mrg1_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g1, 0, sizeof(g510s_data.mr.g1));
-  strncpy(g510s_data.mr.g1, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g1));
-}
-
-void on_entry_mrg2_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g2, 0, sizeof(g510s_data.mr.g2));
-  strncpy(g510s_data.mr.g2, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g2));
-}
-
-void on_entry_mrg3_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g3, 0, sizeof(g510s_data.mr.g3));
-  strncpy(g510s_data.mr.g3, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g3));
-}
-
-void on_entry_mrg4_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g4, 0, sizeof(g510s_data.mr.g4));
-  strncpy(g510s_data.mr.g4, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g4));
-}
-
-void on_entry_mrg5_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g5, 0, sizeof(g510s_data.mr.g5));
-  strncpy(g510s_data.mr.g5, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g5));
-}
-
-void on_entry_mrg6_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g6, 0, sizeof(g510s_data.mr.g6));
-  strncpy(g510s_data.mr.g6, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g6));
-}
-
-void on_entry_mrg7_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g7, 0, sizeof(g510s_data.mr.g7));
-  strncpy(g510s_data.mr.g7, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g7));
-}
-
-void on_entry_mrg8_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g8, 0, sizeof(g510s_data.mr.g8));
-  strncpy(g510s_data.mr.g8, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g8));
-}
-
-void on_entry_mrg9_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g9, 0, sizeof(g510s_data.mr.g9));
-  strncpy(g510s_data.mr.g9, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g9));
-}
-
-void on_entry_mrg10_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g10, 0, sizeof(g510s_data.mr.g10));
-  strncpy(g510s_data.mr.g10, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g10));
-}
-
-void on_entry_mrg11_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g11, 0, sizeof(g510s_data.mr.g11));
-  strncpy(g510s_data.mr.g11, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g11));
-}
-
-void on_entry_mrg12_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g12, 0, sizeof(g510s_data.mr.g12));
-  strncpy(g510s_data.mr.g12, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g12));
-}
-
-void on_entry_mrg13_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g13, 0, sizeof(g510s_data.mr.g13));
-  strncpy(g510s_data.mr.g13, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g13));
-}
-
-void on_entry_mrg14_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g14, 0, sizeof(g510s_data.mr.g14));
-  strncpy(g510s_data.mr.g14, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g14));
-}
-
-void on_entry_mrg15_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g15, 0, sizeof(g510s_data.mr.g15));
-  strncpy(g510s_data.mr.g15, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g15));
-}
-
-void on_entry_mrg16_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g16, 0, sizeof(g510s_data.mr.g16));
-  strncpy(g510s_data.mr.g16, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g16));
-}
-
-void on_entry_mrg17_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g17, 0, sizeof(g510s_data.mr.g17));
-  strncpy(g510s_data.mr.g17, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g17));
-}
-
-void on_entry_mrg18_changed(GtkEntry *entry, gpointer user_data) {
-  memset(g510s_data.mr.g18, 0, sizeof(g510s_data.mr.g18));
-  strncpy(g510s_data.mr.g18, gtk_entry_get_text(entry), sizeof(g510s_data.mr.g18));
-}
+// --- G-key macro entry handlers ---------------------------------------------
+// The GUI holds 72 near-identical GtkEntry widgets (4 profiles x 18 keys).
+// One template plus a per-bank X-macro list generates all of their handlers.
+#define DEFINE_GKEY_HANDLER(bank, idx)                                          \
+  void on_entry_##bank##g##idx##_changed(GtkEntry *entry, gpointer user_data) { \
+    (void)user_data;                                                            \
+    memset(g510s_data.bank.g##idx, 0, sizeof(g510s_data.bank.g##idx));          \
+    strncpy(g510s_data.bank.g##idx, gtk_entry_get_text(entry),                  \
+            sizeof(g510s_data.bank.g##idx));                                    \
+  }
+
+#define DEFINE_GKEY_BANK(bank) \
+  DEFINE_GKEY_HANDLER(bank, 1)  DEFINE_GKEY_HANDLER(bank, 2)  \
+  DEFINE_GKEY_HANDLER(bank, 3)  DEFINE_GKEY_HANDLER(bank, 4)  \
+  DEFINE_GKEY_HANDLER(bank, 5)  DEFINE_GKEY_HANDLER(bank, 6)  \
+  DEFINE_GKEY_HANDLER(bank, 7)  DEFINE_GKEY_HANDLER(bank, 8)  \
+  DEFINE_GKEY_HANDLER(bank, 9)  DEFINE_GKEY_HANDLER(bank, 10) \
+  DEFINE_GKEY_HANDLER(bank, 11) DEFINE_GKEY_HANDLER(bank, 12) \
+  DEFINE_GKEY_HANDLER(bank, 13) DEFINE_GKEY_HANDLER(bank, 14) \
+  DEFINE_GKEY_HANDLER(bank, 15) DEFINE_GKEY_HANDLER(bank, 16) \
+  DEFINE_GKEY_HANDLER(bank, 17) DEFINE_GKEY_HANDLER(bank, 18)
+
+DEFINE_GKEY_BANK(m1)
+DEFINE_GKEY_BANK(m2)
+DEFINE_GKEY_BANK(m3)
+DEFINE_GKEY_BANK(mr)

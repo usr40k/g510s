@@ -1,0 +1,50 @@
+# --- Brightness level left behind by the previous render (255 == full) ---
+%lvl // cat $HOME/.config/g510s/fade.level 2>/dev/null || echo 255 //
+
+# --- Lock state: 1 = locked, 0 = unlocked ---
+%force // echo 0 //
+%locked // if test @force -eq 1; then echo 1; elif loginctl show-session "$XDG_SESSION_ID" -p LockedHint --value 2>/dev/null | grep -qx yes; then echo 1; elif gdbus call --session --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver --method org.gnome.ScreenSaver.GetActive 2>/dev/null | grep -q true; then echo 1; else echo 0; fi //
+
+# --- Fade speed: 255/step renders for a full sweep (~21s at 1 render/s) ---
+%step // echo 12 //
+
+# --- Step the level down while locked, back up once unlocked ---
+IF,test @locked -eq 1
+  %lvl // echo $(( @lvl - @step )) //
+ELSE
+  %lvl // echo $(( @lvl + @step )) //
+ENDIF
+
+# --- Clamp to 0..255 ---
+%lvl // echo @lvl | awk '{ v = $1 + 0; if (v < 0) v = 0; if (v > 255) v = 255; print v }' //
+
+# --- Remember it for the next render ---
+%save // echo @lvl > $HOME/.config/g510s/fade.level //
+
+# --- Fade a soft blue backlight ---
+%br // echo 30 //
+%bg // echo 90 //
+%bb // echo 255 //
+%r // echo $(( @br * @lvl / 255 )) //
+%g // echo $(( @bg * @lvl / 255 )) //
+%b // echo $(( @bb * @lvl / 255 )) //
+!led @r @g @b
+
+# --- What the LCD shows ---
+%pct // echo $(( @lvl * 100 / 255 )) //
+
+IF,test @lvl -le 0
+  12,7,L,0,2,// printf "LOCKED - backlight off" //
+ELIF,test @locked -eq 1
+  12,7,L,0,2,// printf "LOCKED - fading %d%%" @pct //
+ELSE
+  12,7,L,0,2,// printf "UNLOCKED - backlight %d%%" @pct //
+ENDIF
+
+# --- Brightness bar ---
+GRAPH,BAR,12,20,136,10,// echo @lvl //
+
+# --- Red strip across the top while the screen is locked ---
+IF,test @locked -eq 1
+  RECT,0,0,160,2,1
+ENDIF

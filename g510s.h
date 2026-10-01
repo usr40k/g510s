@@ -134,19 +134,17 @@ struct g510s_data_s {
   int notification_position;     // Current position in queue
 } g510s_data;
 
-// Preset structure
+// Bank config structure - stores display script + macros for a bank
 typedef struct {
   char name[64];
-  struct m_data_s m1;
-  struct m_data_s m2;
-  struct m_data_s m3;
-  struct m_data_s mr;
-  int clock_mode;
-  int show_date;
-  int color_fade;
-} preset_t;
+  char display_script[4096];  // The display.txt script content (saved as <name>.txt)
+  struct m_data_s macros;     // G-key macros for this bank
+  int red;
+  int green;
+  int blue;
+} bank_config_t;
 
-#define MAX_PRESETS 20
+#define MAX_BANK_CONFIGS 20
 
 int leaving;
 int update;

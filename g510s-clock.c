@@ -31,6 +31,7 @@
 #include <utmp.h>
 #include <sys/select.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -89,6 +90,16 @@ typedef struct {
     int skip_else;     // Should we skip the ELSE/ELIF?
     int nesting;       // Nesting level tracking
 } cond_state_t;
+
+// Loop execution state (WHILE ... ENDWHILE)
+#define MAX_LOOP_NESTING 16
+#define MAX_LOOP_ITERATIONS 10000   // Safety cap so a stuck loop cannot hang the daemon
+
+typedef struct {
+    long pos;                    // File offset of the matching WHILE line
+    int iterations;              // Number of iterations completed
+    cond_state_t entry_cond;     // Conditional state to restore on loop (re-)entry
+} loop_frame_t;
 
 
 // Simple hash function to uniquely identify a graph by its command string
@@ -156,10 +167,16 @@ static int label_count = 0;
 
 
 static void trim(char *str) {
-    char *end;
-    while(*str == ' ' || *str == '\t') str++;
-    end = str + strlen(str) - 1;
-    while(end > str && (*end == ' ' || *end == '\t' || *end == '\n')) *end-- = 0;
+    // Strip leading whitespace by shifting the string, then trailing whitespace.
+    char *start = str;
+    while (*start == ' ' || *start == '\t') start++;
+    if (start != str) memmove(str, start, strlen(start) + 1);
+
+    char *end = str + strlen(str);
+    while (end > str && (end[-1] == ' ' || end[-1] == '\t' ||
+                         end[-1] == '\n' || end[-1] == '\r')) {
+        *--end = '\0';
+    }
 }
 
 long long get_now_ms() {
@@ -283,6 +300,46 @@ static void substitute_vars(char *line, script_var_t *vars, int var_count) {
     line[MAX_LINE_LEN-1] = 0;
 }
 
+// Evaluate a control-flow condition: substitute @vars, run the command and
+// interpret the result as a boolean. Used by IF/ELIF and WHILE.
+//
+// Truth rules:
+//   * If the command produces no output, its exit status decides (0 == true),
+//     so `test`, `[ ... ]`, `grep -q`, `ping -c1`, ... work naturally.
+//   * If it produces output, the output is interpreted: numbers are true when
+//     non-zero, and the words true/yes/on (and any other non-empty text) are
+//     true, while false/no/off are false.
+static int eval_condition(const char *cmd, script_var_t *vars, int var_count) {
+    char buf[MAX_LINE_LEN];
+    strncpy(buf, cmd, MAX_LINE_LEN - 1);
+    buf[MAX_LINE_LEN - 1] = 0;
+    substitute_vars(buf, vars, var_count);
+
+    FILE *fp = popen(buf, "r");
+    if (!fp) return 0;
+
+    char output[MAX_CMD_OUTPUT] = {0};
+    if (fgets(output, sizeof(output), fp) != NULL) {
+        trim(output);
+    } else {
+        output[0] = '\0';
+    }
+    int status = pclose(fp);
+    int exit_ok = (status != -1) && WIFEXITED(status) && (WEXITSTATUS(status) == 0);
+
+    if (output[0] == '\0') {
+        return exit_ok;  // no output -> rely on exit status
+    }
+    if (isdigit((unsigned char)output[0]) || output[0] == '-' || output[0] == '+') {
+        return atoi(output) != 0;
+    }
+    if (strcasecmp(output, "false") == 0 || strcasecmp(output, "no") == 0 ||
+        strcasecmp(output, "off") == 0) {
+        return 0;
+    }
+    return 1;  // "true"/"yes"/"on"/any other text
+}
+
 // Notification display function - renders notification text on canvas
 static void render_notification(g15canvas *canvas) {
     if (!notification_active) return;
@@ -367,6 +424,25 @@ void display_notification(const char *text, int duration_ms, int priority) {
     g510s_data.notification_position = 0;
 }
 
+// Advance the file just past the ENDWHILE that matches the current loop body.
+// Nested WHILE/ENDWHILE pairs are balanced while scanning. Returns 1 if an
+// ENDWHILE was found, 0 if EOF was reached first.
+static int skip_to_endwhile(FILE *f) {
+    char buf[MAX_LINE_LEN];
+    int depth = 0;
+    while (fgets(buf, sizeof(buf), f)) {
+        trim(buf);
+        if (buf[0] == '\0' || buf[0] == '#') continue;
+        if (strncmp(buf, "WHILE,", 6) == 0) {
+            depth++;
+        } else if (strncmp(buf, "ENDWHILE", 8) == 0) {
+            if (depth == 0) return 1;
+            depth--;
+        }
+    }
+    return 0;
+}
+
 static int render_scripted_display(g15canvas *canvas, const char *filepath) {
     FILE *f = fopen(filepath, "r");
     if (!f) return 0;
@@ -381,6 +457,11 @@ static int render_scripted_display(g15canvas *canvas, const char *filepath) {
 
     // --- Conditional state ---
     cond_state_t cond = {0};
+
+    // --- Loop state (WHILE/ENDWHILE) ---
+    loop_frame_t loops[MAX_LOOP_NESTING];
+    int loop_top = 0;
+    long line_start = 0;   // File offset of the line currently being processed
 
     // --- GOTO/Label state ---
     label_count = 0;
@@ -408,7 +489,9 @@ static int render_scripted_display(g15canvas *canvas, const char *filepath) {
     rewind(f);
     current_line_num = 0;
     
-    while (fgets(line, sizeof(line), f)) {
+    while (1) {
+        line_start = ftell(f);
+        if (!fgets(line, sizeof(line), f)) break;
         current_line_num++;
         trim(line);
         if (line[0] == 0 || line[0] == '#') continue;
@@ -437,14 +520,9 @@ static int render_scripted_display(g15canvas *canvas, const char *filepath) {
         // --- IF/ELIF/ELSE/ENDIF: conditional rendering ---
         if (strncmp(line, "IF,", 3) == 0) {
             cond.nesting++;
-            
-            // Evaluate the condition (execute the cmd after IF,)
-            char *cond_cmd = line + 3;
-            char output[MAX_CMD_OUTPUT] = {0};
-            exec_cmd(cond_cmd, output, sizeof(output));
-            int cond_result = (atoi(output) != 0) || (strcmp(output, "true") == 0) || (strcmp(output, "yes") == 0) || (strlen(output) > 0 && atoi(output) == 0 && output[0] != '0');
-            
-            if (cond_result) {
+
+            // Evaluate the condition (with @variable substitution)
+            if (eval_condition(line + 3, vars, var_count)) {
                 cond.in_block = 1;
                 cond.skip_else = 1;
             } else {
@@ -461,13 +539,8 @@ static int render_scripted_display(g15canvas *canvas, const char *filepath) {
             if (cond.skip_else) {
                 cond.in_block = 0;
             } else {
-                // Evaluate the condition
-                char *cond_cmd = line + 5;
-                char output[MAX_CMD_OUTPUT] = {0};
-                exec_cmd(cond_cmd, output, sizeof(output));
-                int cond_result = (atoi(output) != 0) || (strcmp(output, "true") == 0) || (strcmp(output, "yes") == 0);
-                
-                if (cond_result) {
+                // Evaluate the condition (with @variable substitution)
+                if (eval_condition(line + 5, vars, var_count)) {
                     cond.in_block = 1;
                     cond.skip_else = 1;
                 } else {
@@ -497,12 +570,85 @@ static int render_scripted_display(g15canvas *canvas, const char *filepath) {
             }
             continue;
         }
-        
-        // If we're in a conditional block that's not active, skip rendering
+
+        // --- WHILE,<shell command> : loop while the command output is truthy ---
+        if (strncmp(line, "WHILE,", 6) == 0) {
+            loop_frame_t *fr = NULL;
+            if (loop_top > 0 && loops[loop_top - 1].pos == line_start) {
+                // We jumped back here from ENDWHILE/CONTINUE: reuse the frame
+                fr = &loops[loop_top - 1];
+            } else if (loop_top < MAX_LOOP_NESTING) {
+                fr = &loops[loop_top++];
+                fr->pos = line_start;
+                fr->iterations = 0;
+                fr->entry_cond = cond;  // remember the state around the loop
+            }
+
+            char *cond_cmd = line + 6;
+            int cond_result = eval_condition(cond_cmd, vars, var_count);
+
+            if (fr && cond_result && fr->iterations < MAX_LOOP_ITERATIONS) {
+                continue; // execute the loop body
+            }
+
+            // Condition false (or iteration cap reached): skip to matching ENDWHILE
+            if (fr) {
+                cond = fr->entry_cond; // discard any condition state from the body
+                loop_top--;
+            }
+            skip_to_endwhile(f);
+            continue;
+        }
+
+        // --- ENDWHILE : jump back to the matching WHILE line ---
+        if (strncmp(line, "ENDWHILE", 8) == 0) {
+            if (loop_top > 0) {
+                loop_frame_t *fr = &loops[loop_top - 1];
+                fr->iterations++;
+                if (fr->iterations >= MAX_LOOP_ITERATIONS) {
+                    cond = fr->entry_cond;
+                    loop_top--; // Safety bail-out, do not loop forever
+                } else {
+                    cond = fr->entry_cond; // restart the body with a clean condition state
+                    fseek(f, fr->pos, SEEK_SET); // re-read & re-evaluate the WHILE line
+                }
+            }
+            continue;
+        }
+
+        // If we're in a conditional block that's not active, skip rendering.
+        // This sits after the IF/WHILE/ENDWHILE bookkeeping (so block and loop
+        // nesting stay balanced) but before BREAK/CONTINUE, which must only
+        // take effect when their block is actually being executed.
         if (cond.active && !cond.in_block) {
             continue;
         }
 
+        // --- BREAK : leave the innermost loop early ---
+        if (strncmp(line, "BREAK", 5) == 0 && (line[5] == '\0' || line[5] == ' ' || line[5] == ',')) {
+            if (loop_top > 0) {
+                cond = loops[loop_top - 1].entry_cond;
+                loop_top--;
+                skip_to_endwhile(f);
+            }
+            continue;
+        }
+
+        // --- CONTINUE : jump straight back to the WHILE condition ---
+        if (strncmp(line, "CONTINUE", 8) == 0 && (line[8] == '\0' || line[8] == ' ')) {
+            if (loop_top > 0) {
+                loop_frame_t *fr = &loops[loop_top - 1];
+                fr->iterations++;
+                cond = fr->entry_cond;
+                if (fr->iterations >= MAX_LOOP_ITERATIONS) {
+                    loop_top--;
+                    skip_to_endwhile(f);
+                } else {
+                    fseek(f, fr->pos, SEEK_SET);
+                }
+            }
+            continue;
+        }
 
         // --- 1. Save the RAW line before substitution for stable Hashing ---
         strncpy(raw_line_copy, line, MAX_LINE_LEN - 1);
@@ -524,17 +670,31 @@ static int render_scripted_display(g15canvas *canvas, const char *filepath) {
             char *cmd_end = strstr(cmd_start, "//");
             if (!cmd_end) continue;
             *cmd_end = 0;
+            // Allow previously defined @vars to be used inside the command,
+            // e.g. `%i // echo $(( @i + 1 )) //` for loop counters.
+            char cmd_buf[MAX_LINE_LEN];
+            strncpy(cmd_buf, cmd_start, sizeof(cmd_buf) - 1);
+            cmd_buf[sizeof(cmd_buf) - 1] = '\0';
+            substitute_vars(cmd_buf, vars, var_count);
             char output[MAX_VAR_VALUE] = {0};
-            exec_cmd(cmd_start, output, sizeof(output));
+            exec_cmd(cmd_buf, output, sizeof(output));
             size_t outlen = strlen(output);
             while (outlen > 0 && (output[outlen - 1] == '\n' || output[outlen - 1] == '\r')) {
                 output[--outlen] = '\0';
             }
-            if (var_count < MAX_SCRIPT_VARS) {
-                strncpy(vars[var_count].name, varname, MAX_VAR_NAME-1);
-                strncpy(vars[var_count].value, output, MAX_VAR_VALUE-1);
-                var_count++;
+            // Update the variable in place when the name already exists, so that
+            // re-assignments (e.g. loop counters) actually change the value.
+            // Otherwise append it as a new variable.
+            int slot = find_var(vars, var_count, varname);
+            if (slot < 0) {
+                if (var_count >= MAX_SCRIPT_VARS) continue;
+                slot = var_count++;
+                strncpy(vars[slot].name, varname, MAX_VAR_NAME-1);
+                vars[slot].name[MAX_VAR_NAME-1] = '\0';
             }
+            memset(vars[slot].value, 0, MAX_VAR_VALUE);
+            strncpy(vars[slot].value, output, MAX_VAR_VALUE-1);
+            vars[slot].value[MAX_VAR_VALUE-1] = '\0';
             continue;
         }
 
@@ -575,6 +735,45 @@ static int render_scripted_display(g15canvas *canvas, const char *filepath) {
             continue;
         }
 
+        // --- Handle !led commands: drive the physical keyboard LED colour ---
+        // This only changes the LED hardware; it never modifies the colours the
+        // user picked in the GUI (g510s_data.m1..mr), so the UI stays untouched.
+        if (strncmp(line, "!led", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+            char arg[64] = {0};
+            sscanf(line + 4, "%63s", arg);
+
+            if (strcmp(arg, "off") == 0) {
+                setG510LEDColor(0, 0, 0);
+                g510s_data.led_red = g510s_data.led_green = g510s_data.led_blue = 0;
+            } else if (strcmp(arg, "ui") == 0) {
+                // Restore the colour selected in the GUI for the active profile
+                struct m_data_s *mkey = NULL;
+                switch (g510s_data.mkey_state) {
+                    case 1: mkey = &g510s_data.m1; break;
+                    case 2: mkey = &g510s_data.m2; break;
+                    case 3: mkey = &g510s_data.m3; break;
+                    case 4: mkey = &g510s_data.mr; break;
+                }
+                if (mkey) {
+                    setG510LEDColor(mkey->red, mkey->green, mkey->blue);
+                    g510s_data.led_red = mkey->red;
+                    g510s_data.led_green = mkey->green;
+                    g510s_data.led_blue = mkey->blue;
+                }
+            } else {
+                int r = 0, g = 0, b = 0;
+                if (sscanf(line + 4, "%d%*[, ]%d%*[, ]%d", &r, &g, &b) == 3) {
+                    if (r < 0) r = 0; if (r > 255) r = 255;
+                    if (g < 0) g = 0; if (g > 255) g = 255;
+                    if (b < 0) b = 0; if (b > 255) b = 255;
+                    setG510LEDColor(r, g, b);
+                    g510s_data.led_red = r;
+                    g510s_data.led_green = g;
+                    g510s_data.led_blue = b;
+                }
+            }
+            continue;
+        }
 
         // Rectangle: RECT,x,y,w,h[,fillmode] (filled or outline, fill controlled by fillmode)
         int fill_shape = 0, black_fill = 0, fill_mode = 0, outline_black = 0;

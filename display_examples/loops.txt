@@ -1,0 +1,39 @@
+# --- Overall CPU load in percent ---
+%cpu // top -bn1 | awk '/Cpu\(s\)/ {print 100 - int($8)}' //
+
+# --- Colour the LED by load. This does NOT change the colour stored in the UI. ---
+IF,test @cpu -gt 80
+  !led 255 0 0
+ELIF,test @cpu -gt 50
+  !led 255 170 0
+ELSE
+  !led 0 210 100
+ENDIF
+
+# --- Header ---
+5,1,L,0,1,// printf "CPU %d%%" @cpu //
+
+# --- Separator line under the header ---
+RECT,2,12,156,1,1
+
+# --- Collect 12 mixer levels into one space separated string ---
+%vals // amixer get Master 2>/dev/null | grep -o '[0-9]*%' | tr -d '%' | tr '\n' ' ' //
+
+# --- Draw one bar per value using a loop ---
+%i // echo 0 //
+WHILE,test @i -lt 12
+  # i-th value; awk prints 0 when the field is missing or empty
+  %v // echo @vals | awk '{ printf "%d", $(( @i + 1 )) + 0 }' //
+  # geometry for this bar (arithmetic has to go through %vars)
+  %x // echo $(( @i * 13 )) //
+  %y // echo $(( 41 - @v )) //
+  %h // echo $(( @v + 1 )) //
+  RECT,@x,@y,11,@h,1
+  %i // echo $(( @i + 1 )) //
+ENDWHILE
+
+# --- Footer, only drawn when a battery level is available ---
+%bat // cat /sys/class/power_supply/*/capacity 2>/dev/null | head -1 //
+IF,echo @bat | grep -q '^[0-9][0-9]*$'
+  158,0,R,0,1,// printf "BAT %s%%" @bat //
+ENDIF

@@ -3234,7 +3234,7 @@
                     <property name="can_focus">False</property>
                     <property name="margin_left">5</property>
                     <property name="margin_top">10</property>
-                    <property name="label" translatable="yes">Presets and Macro Bank Bindings</property>
+                    <property name="label" translatable="yes">Bank Configurations</property>
                     <property name="use_markup">True</property>
                     <attributes>
                       <attribute name="weight" value="bold"/>
@@ -3505,7 +3505,7 @@
                 <property name="name">label_presets</property>
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
-                <property name="label" translatable="yes">Presets</property>
+                <property name="label" translatable="yes">Bank Config</property>
               </object>
               <packing>
                 <property name="position">5</property>

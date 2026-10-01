@@ -1,0 +1,63 @@
+# --- Load previous hue and level ---
+%st // cat $HOME/.config/g510s/combo.state 2>/dev/null || echo "0 255" //
+%hue // echo @st | awk '{ print $1 + 0 }' //
+%lvl // echo @st | awk '{ print $2 + 0 }' //
+
+# --- Lock state: 1 = locked, 0 = unlocked ---
+%force // echo 0 //
+%locked // if test @force -eq 1; then echo 1; elif loginctl show-session "$XDG_SESSION_ID" -p LockedHint --value 2>/dev/null | grep -qx yes; then echo 1; elif gdbus call --session --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver --method org.gnome.ScreenSaver.GetActive 2>/dev/null | grep -q true; then echo 1; else echo 0; fi //
+
+# --- Tuning ---
+%speed // echo 2 //     # hue degrees per render while unlocked
+%fade // echo 12 //     # brightness steps per render while locked
+
+# --- Pick what to advance this render ---
+IF,test @locked -eq 1
+  # Locked: freeze the hue, fade the backlight down
+  %lvl // echo $(( @lvl - @fade )) //
+ELSE
+  # Unlocked: keep cycling, bring the backlight back up
+  %hue // echo $(( (@hue + @speed) % 360 )) //
+  %lvl // echo $(( @lvl + @fade )) //
+ENDIF
+
+# --- Clamp level to 0..255 ---
+%lvl // echo @lvl | awk '{ v = $1 + 0; if (v < 0) v = 0; if (v > 255) v = 255; print v }' //
+
+# --- Remember both for the next render ---
+%save // echo @hue @lvl > $HOME/.config/g510s/combo.state //
+
+# --- HSV to RGB, then dim it by the level ---
+%rgb // echo @hue | awk '{ h = $1 / 60; i = int(h); f = h - i; q = 1 - f; if (i == 0) printf "255 %d 0", f * 255; else if (i == 1) printf "%d 255 0", q * 255; else if (i == 2) printf "0 255 %d", f * 255; else if (i == 3) printf "0 %d 255", q * 255; else if (i == 4) printf "%d 0 255", f * 255; else printf "255 0 %d", q * 255 }' //
+%r // echo @rgb | cut -d" " -f1 //
+%g // echo @rgb | cut -d" " -f2 //
+%b // echo @rgb | cut -d" " -f3 //
+%r // echo $(( @r * @lvl / 255 )) //
+%g // echo $(( @g * @lvl / 255 )) //
+%b // echo $(( @b * @lvl / 255 )) //
+
+!led @r @g @b
+
+# --- Status ---
+%pct // echo $(( @lvl * 100 / 255 )) //
+
+IF,test @lvl -le 0
+  10,6,L,0,2,// printf "LOCKED  off" //
+ELIF,test @locked -eq 1
+  10,6,L,0,2,// printf "LOCKED  %d%%" @pct //
+ELSE
+  10,6,L,0,2,// printf "RAINBOW %d%%" @pct //
+ENDIF
+
+# --- Hue and brightness ---
+10,17,L,0,1,// printf "hue %3d   level %3d" @hue @lvl //
+
+# --- Sweep marker + hue bar ---
+%px // echo $(( @hue * 157 / 359 )) //
+RECT,@px,25,3,6,1
+GRAPH,BAR,10,33,140,8,// echo @hue //
+
+# --- Locked indicator strip ---
+IF,test @locked -eq 1
+  RECT,0,0,160,2,1
+ENDIF

@@ -46,9 +46,9 @@ unsigned char preview_buffer[G15_BUFFER_LEN];
 // Dump display buffer flag
 int dump_display_buffer = 0;
 
-// Presets array
-static preset_t presets[MAX_PRESETS];
-static int preset_count = 0;
+// Bank configs array
+static bank_config_t bank_configs[MAX_BANK_CONFIGS];
+static int bank_config_count = 0;
 
 // DBus interface and object path
 #define G510S_DBUS_NAME "org.g510s.control"
@@ -111,6 +111,9 @@ static gboolean on_handle_list_presets(GDBusConnection *connection, const gchar 
 // Forward declaration for display_notification (defined in g510s-clock.c)
 extern void display_notification(const char *text, int duration_ms, int priority);
 
+// Forward declaration for display_editor (declared below as global widget pointer)
+extern GtkTextView *display_editor;
+
 // --- GUI refresh support ---
 static void refresh_gui_internal();
 static gboolean refresh_gui_idle(gpointer data) {
@@ -122,131 +125,144 @@ void refresh_gui() {
 }
 
 // --- Preset management ---
+// Helper: get display.txt path
+static void get_display_path(char *buf, size_t bufsize) {
+    char home[255];
+    strncpy(home, getenv("HOME"), sizeof(home));
+    if (home[0]) {
+        snprintf(buf, bufsize, "%s/.config/g510s/display.txt", home);
+    } else {
+        strncpy(buf, "display.txt", bufsize);
+    }
+}
+
 void load_presets() {
+    char configs_dir[512];
+    
+    bank_config_count = 0;
+    memset(bank_configs, 0, sizeof(bank_configs));
+    
     char home_path[255];
-    char presets_dir[] = "/.config/g510s/presets/";
-    char *path;
-    
-    preset_count = 0;
-    memset(presets, 0, sizeof(presets));
-    
     strncpy(home_path, getenv("HOME"), sizeof(home_path));
     if (home_path[0] == '\0') return;
     
-    path = malloc(strlen(home_path) + strlen(presets_dir) + 1);
-    strcpy(path, home_path);
-    strcat(path, presets_dir);
+    snprintf(configs_dir, sizeof(configs_dir), "%s/.config/g510s/presets/", home_path);
     
-    DIR *dir = opendir(path);
-    if (!dir) {
-        free(path);
-        return;
-    }
+    DIR *dir = opendir(configs_dir);
+    if (!dir) return;
     
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL && preset_count < MAX_PRESETS) {
+    while ((entry = readdir(dir)) != NULL && bank_config_count < MAX_BANK_CONFIGS) {
         if (entry->d_type == DT_REG || entry->d_type == DT_LNK) {
             char *dot = strrchr(entry->d_name, '.');
-            if (dot && strcmp(dot, ".prs") == 0) {
+            if (dot && strcmp(dot, ".txt") == 0) {
                 char fullpath[512];
-                snprintf(fullpath, sizeof(fullpath), "%s%s", path, entry->d_name);
+                snprintf(fullpath, sizeof(fullpath), "%s%s", configs_dir, entry->d_name);
                 
                 FILE *f = fopen(fullpath, "r");
                 if (f) {
                     char name_no_ext[64];
                     strncpy(name_no_ext, entry->d_name, strlen(entry->d_name) - 4);
                     name_no_ext[strlen(entry->d_name) - 4] = '\0';
-                    strncpy(presets[preset_count].name, name_no_ext, sizeof(presets[preset_count].name) - 1);
+                    strncpy(bank_configs[bank_config_count].name, name_no_ext, sizeof(bank_configs[bank_config_count].name) - 1);
                     
-                    fread(&presets[preset_count].m1, sizeof(struct m_data_s), 1, f);
-                    fread(&presets[preset_count].m2, sizeof(struct m_data_s), 1, f);
-                    fread(&presets[preset_count].m3, sizeof(struct m_data_s), 1, f);
-                    fread(&presets[preset_count].mr, sizeof(struct m_data_s), 1, f);
-                    fread(&presets[preset_count].clock_mode, sizeof(int), 1, f);
-                    fread(&presets[preset_count].show_date, sizeof(int), 1, f);
-                    fread(&presets[preset_count].color_fade, sizeof(int), 1, f);
+                    // Read the display script content
+                    size_t nread = fread(bank_configs[bank_config_count].display_script, 1, sizeof(bank_configs[bank_config_count].display_script) - 1, f);
+                    bank_configs[bank_config_count].display_script[nread] = '\0';
                     
                     fclose(f);
-                    preset_count++;
+                    bank_config_count++;
                 }
             }
         }
     }
     closedir(dir);
-    free(path);
 }
 
 void save_preset(const char *name) {
-    char home_path[255];
-    char presets_dir[] = "/.config/g510s/presets/";
-    char *path;
+    char presets_dir[512];
     char fullpath[512];
     
+    char home_path[255];
     strncpy(home_path, getenv("HOME"), sizeof(home_path));
     if (home_path[0] == '\0') return;
     
-    path = malloc(strlen(home_path) + strlen(presets_dir) + 1);
-    strcpy(path, home_path);
-    strcat(path, presets_dir);
+    snprintf(presets_dir, sizeof(presets_dir), "%s/.config/g510s/presets/", home_path);
+    mkdir(presets_dir, 0777);
     
-    mkdir(path, 0777);
+    snprintf(fullpath, sizeof(fullpath), "%s%s.txt", presets_dir, name);
     
-    snprintf(fullpath, sizeof(fullpath), "%s%s.prs", path, name);
+    // Read current display.txt content
+    char display_path[512];
+    get_display_path(display_path, sizeof(display_path));
     
+    FILE *src = fopen(display_path, "r");
     FILE *f = fopen(fullpath, "w");
     if (f) {
-        fwrite(&g510s_data.m1, sizeof(struct m_data_s), 1, f);
-        fwrite(&g510s_data.m2, sizeof(struct m_data_s), 1, f);
-        fwrite(&g510s_data.m3, sizeof(struct m_data_s), 1, f);
-        fwrite(&g510s_data.mr, sizeof(struct m_data_s), 1, f);
-        fwrite(&g510s_data.clock_mode, sizeof(int), 1, f);
-        fwrite(&g510s_data.show_date, sizeof(int), 1, f);
-        fwrite(&g510s_data.color_fade, sizeof(int), 1, f);
+        if (src) {
+            char buf[4096];
+            size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), src)) > 0) {
+                fwrite(buf, 1, n, f);
+            }
+            fclose(src);
+        }
         fclose(f);
         
-        // Update preset list
+        // Update bank config list
         int found = 0;
-        for (int i = 0; i < preset_count; i++) {
-            if (strcmp(presets[i].name, name) == 0) {
+        for (int i = 0; i < bank_config_count; i++) {
+            if (strcmp(bank_configs[i].name, name) == 0) {
                 found = 1;
+                FILE *r = fopen(fullpath, "r");
+                if (r) {
+                    size_t n = fread(bank_configs[i].display_script, 1, sizeof(bank_configs[i].display_script) - 1, r);
+                    bank_configs[i].display_script[n] = '\0';
+                    fclose(r);
+                }
                 break;
             }
         }
-        if (!found && preset_count < MAX_PRESETS) {
-            strncpy(presets[preset_count].name, name, sizeof(presets[preset_count].name) - 1);
-            presets[preset_count].m1 = g510s_data.m1;
-            presets[preset_count].m2 = g510s_data.m2;
-            presets[preset_count].m3 = g510s_data.m3;
-            presets[preset_count].mr = g510s_data.mr;
-            presets[preset_count].clock_mode = g510s_data.clock_mode;
-            presets[preset_count].show_date = g510s_data.show_date;
-            presets[preset_count].color_fade = g510s_data.color_fade;
-            preset_count++;
+        if (!found && bank_config_count < MAX_BANK_CONFIGS) {
+            strncpy(bank_configs[bank_config_count].name, name, sizeof(bank_configs[bank_config_count].name) - 1);
+            FILE *r = fopen(fullpath, "r");
+            if (r) {
+                size_t n = fread(bank_configs[bank_config_count].display_script, 1, sizeof(bank_configs[bank_config_count].display_script) - 1, r);
+                bank_configs[bank_config_count].display_script[n] = '\0';
+                fclose(r);
+            }
+            bank_config_count++;
         }
     }
-    free(path);
 }
 
 void load_preset(const char *name) {
-    for (int i = 0; i < preset_count; i++) {
-        if (strcmp(presets[i].name, name) == 0) {
-            g510s_data.m1 = presets[i].m1;
-            g510s_data.m2 = presets[i].m2;
-            g510s_data.m3 = presets[i].m3;
-            g510s_data.mr = presets[i].mr;
-            g510s_data.clock_mode = presets[i].clock_mode;
-            g510s_data.show_date = presets[i].show_date;
-            g510s_data.color_fade = presets[i].color_fade;
+    for (int i = 0; i < bank_config_count; i++) {
+        if (strcmp(bank_configs[i].name, name) == 0) {
+            char display_path[512];
+            get_display_path(display_path, sizeof(display_path));
+            FILE *f = fopen(display_path, "w");
+            if (f) {
+                fprintf(f, "%s", bank_configs[i].display_script);
+                fclose(f);
+                printf("G510s: Loaded display preset '%s'\n", name);
+            }
+            
+            // Update the editor if it exists
+            if (display_editor) {
+                GtkTextBuffer *buffer = gtk_text_view_get_buffer(display_editor);
+                gtk_text_buffer_set_text(buffer, bank_configs[i].display_script, -1);
+            }
+            
             refresh_gui();
             break;
         }
     }
 }
 
-// Bind preset to macro bank
+// Bind display preset to macro bank
 void bind_preset_to_bank(int bank, const char *preset_name) {
     if (bank < 1 || bank > 4) return;
-    // Store binding - we use a simple convention: store in display.txt reference
     char home_path[255];
     char bind_path[512];
     
@@ -258,6 +274,7 @@ void bind_preset_to_bank(int bank, const char *preset_name) {
     if (f) {
         fprintf(f, "%s\n", preset_name);
         fclose(f);
+        printf("G510s: Bound preset '%s' to bank M%d\n", preset_name, bank);
     }
 }
 
@@ -380,12 +397,12 @@ static gboolean on_handle_list_presets(GDBusConnection *connection, const gchar 
                                       const gchar *interface_name, const gchar *method_name, GVariant *parameters,
                                       GDBusMethodInvocation *invocation, gpointer user_data) {
     load_presets();
-    const char **names = g_new(const char *, preset_count + 1);
-    for (int i = 0; i < preset_count; i++) {
-        names[i] = presets[i].name;
+    const char **names = g_new(const char *, bank_config_count + 1);
+    for (int i = 0; i < bank_config_count; i++) {
+        names[i] = bank_configs[i].name;
     }
-    names[preset_count] = NULL;
-    g_dbus_method_invocation_return_value(invocation, g_variant_new_strv(names, preset_count));
+    names[bank_config_count] = NULL;
+    g_dbus_method_invocation_return_value(invocation, g_variant_new_strv(names, bank_config_count));
     g_free(names);
     return TRUE;
 }
@@ -769,10 +786,12 @@ GtkRange *bluescale_m3;
 GtkRange *redscale_mr;
 GtkRange *greenscale_mr;
 GtkRange *bluescale_mr;
-GtkEntry *entry_m1g1, *entry_m1g2, *entry_m1g3, *entry_m1g4, *entry_m1g5, *entry_m1g6, *entry_m1g7, *entry_m1g8, *entry_m1g9, *entry_m1g10, *entry_m1g11, *entry_m1g12, *entry_m1g13, *entry_m1g14, *entry_m1g15, *entry_m1g16, *entry_m1g17, *entry_m1g18;
-GtkEntry *entry_m2g1, *entry_m2g2, *entry_m2g3, *entry_m2g4, *entry_m2g5, *entry_m2g6, *entry_m2g7, *entry_m2g8, *entry_m2g9, *entry_m2g10, *entry_m2g11, *entry_m2g12, *entry_m2g13, *entry_m2g14, *entry_m2g15, *entry_m2g16, *entry_m2g17, *entry_m2g18;
-GtkEntry *entry_m3g1, *entry_m3g2, *entry_m3g3, *entry_m3g4, *entry_m3g5, *entry_m3g6, *entry_m3g7, *entry_m3g8, *entry_m3g9, *entry_m3g10, *entry_m3g11, *entry_m3g12, *entry_m3g13, *entry_m3g14, *entry_m3g15, *entry_m3g16, *entry_m3g17, *entry_m3g18;
-GtkEntry *entry_mrg1, *entry_mrg2, *entry_mrg3, *entry_mrg4, *entry_mrg5, *entry_mrg6, *entry_mrg7, *entry_mrg8, *entry_mrg9, *entry_mrg10, *entry_mrg11, *entry_mrg12, *entry_mrg13, *entry_mrg14, *entry_mrg15, *entry_mrg16, *entry_mrg17, *entry_mrg18;
+// Macro entries live in per-profile arrays; index 1..18 maps to G1..G18.
+#define GKEY_COUNT 18
+GtkEntry *entry_m1[GKEY_COUNT + 1];
+GtkEntry *entry_m2[GKEY_COUNT + 1];
+GtkEntry *entry_m3[GKEY_COUNT + 1];
+GtkEntry *entry_mr[GKEY_COUNT + 1];
 GtkCheckMenuItem *menuhidden;
 GtkCheckMenuItem *menuautosave;
 GtkCheckMenuItem *menucolorfade;
@@ -784,6 +803,214 @@ GtkComboBoxText *bank2_preset_combo; // Preset binding for bank 2
 GtkComboBoxText *bank3_preset_combo; // Preset binding for bank 3
 GtkComboBoxText *bank4_preset_combo; // Preset binding for bank 4
 AppIndicator *indicator;
+
+// --- Colour picker ----------------------------------------------------------
+// A single reusable picker (R/G/B spin buttons + hex entry + graphical
+// GtkColorButton chooser + live swatch) is built once per profile in code, so
+// the UI needs no repeated slider widgets or per-channel signal handlers.
+typedef struct {
+    int profile;          // 1..4  (M1, M2, M3, MR)
+    GtkWidget *red;       // GtkSpinButton 0..255
+    GtkWidget *green;
+    GtkWidget *blue;
+    GtkWidget *hex;       // GtkEntry, "#RRGGBB"
+    GtkWidget *chooser;   // GtkColorButton (graphical picker)
+    GtkWidget *swatch;    // GtkDrawingArea preview
+    int updating;         // Re-entrancy guard
+} color_picker_t;
+
+static color_picker_t color_pickers[4];
+
+static struct m_data_s *profile_data(int profile) {
+    switch (profile) {
+        case 1: return &g510s_data.m1;
+        case 2: return &g510s_data.m2;
+        case 3: return &g510s_data.m3;
+        case 4: return &g510s_data.mr;
+    }
+    return &g510s_data.m1;
+}
+
+// Return the storage for G-key `idx` (1..18) of a profile.
+static const char *gkey_field(struct m_data_s *m, int idx) {
+    switch (idx) {
+        case 1:  return m->g1;   case 2:  return m->g2;
+        case 3:  return m->g3;   case 4:  return m->g4;
+        case 5:  return m->g5;   case 6:  return m->g6;
+        case 7:  return m->g7;   case 8:  return m->g8;
+        case 9:  return m->g9;   case 10: return m->g10;
+        case 11: return m->g11;  case 12: return m->g12;
+        case 13: return m->g13;  case 14: return m->g14;
+        case 15: return m->g15;  case 16: return m->g16;
+        case 17: return m->g17;  case 18: return m->g18;
+    }
+    return "";
+}
+
+static gboolean on_swatch_draw(GtkWidget *widget, cairo_t *cr, gpointer data) {
+    color_picker_t *cp = data;
+    int r = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(cp->red));
+    int g = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(cp->green));
+    int b = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(cp->blue));
+    int w = gtk_widget_get_allocated_width(widget);
+    int h = gtk_widget_get_allocated_height(widget);
+    cairo_set_source_rgb(cr, r / 255.0, g / 255.0, b / 255.0);
+    cairo_rectangle(cr, 0, 0, w, h);
+    cairo_fill(cr);
+    cairo_set_source_rgb(cr, 0.35, 0.35, 0.35);
+    cairo_rectangle(cr, 0.5, 0.5, w - 1, h - 1);
+    cairo_stroke(cr);
+    return FALSE;
+}
+
+// Push the picker's colour into the profile data and request an LED update.
+static void picker_apply(color_picker_t *cp) {
+    if (cp->updating) return;
+    int r = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(cp->red));
+    int g = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(cp->green));
+    int b = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(cp->blue));
+    struct m_data_s *m = profile_data(cp->profile);
+    m->red = r; m->green = g; m->blue = b;
+    update = cp->profile;   // ask the update thread to push the new colour
+
+    char hex[8];
+    snprintf(hex, sizeof(hex), "#%02X%02X%02X", r, g, b);
+    GdkRGBA rgba = { r / 255.0, g / 255.0, b / 255.0, 1.0 };
+
+    cp->updating = 1;
+    gtk_entry_set_text(GTK_ENTRY(cp->hex), hex);
+    gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(cp->chooser), &rgba);
+    cp->updating = 0;
+
+    gtk_widget_queue_draw(cp->swatch);
+}
+
+// Refresh the picker widgets from the profile data (no LED update).
+static void picker_sync(color_picker_t *cp) {
+    struct m_data_s *m = profile_data(cp->profile);
+    char hex[8];
+    snprintf(hex, sizeof(hex), "#%02X%02X%02X", m->red, m->green, m->blue);
+    GdkRGBA rgba = { m->red / 255.0, m->green / 255.0, m->blue / 255.0, 1.0 };
+
+    cp->updating = 1;
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(cp->red), m->red);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(cp->green), m->green);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(cp->blue), m->blue);
+    gtk_entry_set_text(GTK_ENTRY(cp->hex), hex);
+    gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(cp->chooser), &rgba);
+    cp->updating = 0;
+
+    gtk_widget_queue_draw(cp->swatch);
+}
+
+static void on_picker_spin_changed(GtkSpinButton *spin, gpointer data) {
+    picker_apply((color_picker_t *)data);
+}
+
+static void on_picker_hex_activate(GtkEntry *entry, gpointer data) {
+    color_picker_t *cp = data;
+    const char *text = gtk_entry_get_text(entry);
+    while (*text == ' ' || *text == '#') text++;
+    unsigned int r, g, b;
+    if (sscanf(text, "%2x%2x%2x", &r, &g, &b) == 3) {
+        cp->updating = 1;
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(cp->red), r);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(cp->green), g);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(cp->blue), b);
+        cp->updating = 0;
+        picker_apply(cp);
+    }
+}
+
+static void on_picker_color_set(GtkColorButton *button, gpointer data) {
+    color_picker_t *cp = data;
+    GdkRGBA rgba;
+    gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &rgba);
+    cp->updating = 1;
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(cp->red), (int)(rgba.red * 255 + 0.5));
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(cp->green), (int)(rgba.green * 255 + 0.5));
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(cp->blue), (int)(rgba.blue * 255 + 0.5));
+    cp->updating = 0;
+    picker_apply(cp);
+}
+
+static void build_color_picker(GtkBuilder *builder, const char *box_id,
+                               const char *f1, const char *f2, const char *f3,
+                               int profile) {
+    GtkWidget *box = GTK_WIDGET(gtk_builder_get_object(builder, box_id));
+    if (!box) return;
+
+    // Hide the legacy slider frames this picker replaces.
+    const char *frames[3] = { f1, f2, f3 };
+    for (int i = 0; i < 3; i++) {
+        GtkWidget *fr = GTK_WIDGET(gtk_builder_get_object(builder, frames[i]));
+        if (fr) {
+            gtk_widget_set_no_show_all(fr, TRUE);
+            gtk_widget_hide(fr);
+        }
+    }
+
+    color_picker_t *cp = &color_pickers[profile - 1];
+    cp->profile = profile;
+    cp->updating = 0;
+
+    GtkWidget *frame = gtk_frame_new(NULL);
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 4);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 6);
+    gtk_container_set_border_width(GTK_CONTAINER(grid), 6);
+    gtk_container_add(GTK_CONTAINER(frame), grid);
+
+    cp->red = gtk_spin_button_new_with_range(0, 255, 1);
+    cp->green = gtk_spin_button_new_with_range(0, 255, 1);
+    cp->blue = gtk_spin_button_new_with_range(0, 255, 1);
+    cp->hex = gtk_entry_new();
+    gtk_entry_set_width_chars(GTK_ENTRY(cp->hex), 8);
+    gtk_entry_set_max_length(GTK_ENTRY(cp->hex), 7);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(cp->hex), "#RRGGBB");
+    cp->chooser = gtk_color_button_new();
+    gtk_color_button_set_title(GTK_COLOR_BUTTON(cp->chooser), "LED colour");
+    cp->swatch = gtk_drawing_area_new();
+    gtk_widget_set_size_request(cp->swatch, 40, 24);
+
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("R"), 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), cp->red,              1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("G"), 2, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), cp->green,            3, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("B"), 4, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), cp->blue,             5, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Hex"), 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), cp->hex,              1, 1, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), cp->chooser,          3, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), cp->swatch,           4, 1, 2, 1);
+
+    g_signal_connect(cp->red,     "value-changed", G_CALLBACK(on_picker_spin_changed), cp);
+    g_signal_connect(cp->green,   "value-changed", G_CALLBACK(on_picker_spin_changed), cp);
+    g_signal_connect(cp->blue,    "value-changed", G_CALLBACK(on_picker_spin_changed), cp);
+    g_signal_connect(cp->hex,     "activate",      G_CALLBACK(on_picker_hex_activate), cp);
+    g_signal_connect(cp->chooser, "color-set",     G_CALLBACK(on_picker_color_set), cp);
+    g_signal_connect(cp->swatch,  "draw",          G_CALLBACK(on_swatch_draw), cp);
+
+    gtk_box_pack_start(GTK_BOX(box), frame, FALSE, FALSE, 4);
+    gtk_box_reorder_child(GTK_BOX(box), frame, 0);
+    gtk_widget_show_all(frame);
+
+    picker_sync(cp);
+}
+
+// Replace the slider frames on each profile page with a colour picker.
+static void setup_color_pickers(GtkBuilder *builder) {
+    build_color_picker(builder, "box2", "frame1",  "frame2",  "frame3",  1);
+    build_color_picker(builder, "box3", "frame4",  "frame5",  "frame6",  2);
+    build_color_picker(builder, "box4", "frame7",  "frame8",  "frame9",  3);
+    build_color_picker(builder, "box5", "frame10", "frame11", "frame12", 4);
+}
+
+static void sync_color_pickers(void) {
+    for (int i = 0; i < 4; i++) {
+        if (color_pickers[i].profile) picker_sync(&color_pickers[i]);
+    }
+}
 
 // Display preview rendering function  
 static gboolean on_preview_draw(GtkWidget *widget, cairo_t *cr, gpointer data) {
@@ -875,8 +1102,8 @@ void on_save_preset_clicked(GtkButton *button, gpointer user_data) {
             load_presets();
             gtk_combo_box_text_remove_all(preset_combo);
             gtk_combo_box_text_append_text(preset_combo, "None");
-            for (int i = 0; i < preset_count; i++) {
-                gtk_combo_box_text_append_text(preset_combo, presets[i].name);
+            for (int i = 0; i < bank_config_count; i++) {
+                gtk_combo_box_text_append_text(preset_combo, bank_configs[i].name);
             }
             gtk_combo_box_set_active(GTK_COMBO_BOX(preset_combo), 0);
             
@@ -894,9 +1121,9 @@ void on_save_preset_clicked(GtkButton *button, gpointer user_data) {
                     gtk_combo_box_text_remove_all(bank_combo);
                     gtk_combo_box_text_append_text(bank_combo, "None");
                     int active_idx = 0;
-                    for (int i = 0; i < preset_count; i++) {
-                        gtk_combo_box_text_append_text(bank_combo, presets[i].name);
-                        if (strcmp(presets[i].name, current) == 0) {
+                    for (int i = 0; i < bank_config_count; i++) {
+                        gtk_combo_box_text_append_text(bank_combo, bank_configs[i].name);
+                        if (strcmp(bank_configs[i].name, current) == 0) {
                             active_idx = i + 1;
                         }
                     }
@@ -962,92 +1189,18 @@ gboolean on_preview_refresh(gpointer data) {
 
 // --- GUI refresh implementation ---
 static void refresh_gui_internal() {
-    // Update color scales
-    gtk_range_set_value(redscale_m1, g510s_data.m1.red);
-    gtk_range_set_value(greenscale_m1, g510s_data.m1.green);
-    gtk_range_set_value(bluescale_m1, g510s_data.m1.blue);
-    gtk_range_set_value(redscale_m2, g510s_data.m2.red);
-    gtk_range_set_value(greenscale_m2, g510s_data.m2.green);
-    gtk_range_set_value(bluescale_m2, g510s_data.m2.blue);
-    gtk_range_set_value(redscale_m3, g510s_data.m3.red);
-    gtk_range_set_value(greenscale_m3, g510s_data.m3.green);
-    gtk_range_set_value(bluescale_m3, g510s_data.m3.blue);
-    gtk_range_set_value(redscale_mr, g510s_data.mr.red);
-    gtk_range_set_value(greenscale_mr, g510s_data.mr.green);
-    gtk_range_set_value(bluescale_mr, g510s_data.mr.blue);
+    // Update colour pickers (the visible controls; the legacy sliders are hidden)
+    sync_color_pickers();
     // Update macro entries
-    gtk_entry_set_text(entry_m1g1, g510s_data.m1.g1);
-    gtk_entry_set_text(entry_m1g2, g510s_data.m1.g2);
-    gtk_entry_set_text(entry_m1g3, g510s_data.m1.g3);
-    gtk_entry_set_text(entry_m1g4, g510s_data.m1.g4);
-    gtk_entry_set_text(entry_m1g5, g510s_data.m1.g5);
-    gtk_entry_set_text(entry_m1g6, g510s_data.m1.g6);
-    gtk_entry_set_text(entry_m1g7, g510s_data.m1.g7);
-    gtk_entry_set_text(entry_m1g8, g510s_data.m1.g8);
-    gtk_entry_set_text(entry_m1g9, g510s_data.m1.g9);
-    gtk_entry_set_text(entry_m1g10, g510s_data.m1.g10);
-    gtk_entry_set_text(entry_m1g11, g510s_data.m1.g11);
-    gtk_entry_set_text(entry_m1g12, g510s_data.m1.g12);
-    gtk_entry_set_text(entry_m1g13, g510s_data.m1.g13);
-    gtk_entry_set_text(entry_m1g14, g510s_data.m1.g14);
-    gtk_entry_set_text(entry_m1g15, g510s_data.m1.g15);
-    gtk_entry_set_text(entry_m1g16, g510s_data.m1.g16);
-    gtk_entry_set_text(entry_m1g17, g510s_data.m1.g17);
-    gtk_entry_set_text(entry_m1g18, g510s_data.m1.g18);
-    gtk_entry_set_text(entry_m2g1, g510s_data.m2.g1);
-    gtk_entry_set_text(entry_m2g2, g510s_data.m2.g2);
-    gtk_entry_set_text(entry_m2g3, g510s_data.m2.g3);
-    gtk_entry_set_text(entry_m2g4, g510s_data.m2.g4);
-    gtk_entry_set_text(entry_m2g5, g510s_data.m2.g5);
-    gtk_entry_set_text(entry_m2g6, g510s_data.m2.g6);
-    gtk_entry_set_text(entry_m2g7, g510s_data.m2.g7);
-    gtk_entry_set_text(entry_m2g8, g510s_data.m2.g8);
-    gtk_entry_set_text(entry_m2g9, g510s_data.m2.g9);
-    gtk_entry_set_text(entry_m2g10, g510s_data.m2.g10);
-    gtk_entry_set_text(entry_m2g11, g510s_data.m2.g11);
-    gtk_entry_set_text(entry_m2g12, g510s_data.m2.g12);
-    gtk_entry_set_text(entry_m2g13, g510s_data.m2.g13);
-    gtk_entry_set_text(entry_m2g14, g510s_data.m2.g14);
-    gtk_entry_set_text(entry_m2g15, g510s_data.m2.g15);
-    gtk_entry_set_text(entry_m2g16, g510s_data.m2.g16);
-    gtk_entry_set_text(entry_m2g17, g510s_data.m2.g17);
-    gtk_entry_set_text(entry_m2g18, g510s_data.m2.g18);
-    gtk_entry_set_text(entry_m3g1, g510s_data.m3.g1);
-    gtk_entry_set_text(entry_m3g2, g510s_data.m3.g2);
-    gtk_entry_set_text(entry_m3g3, g510s_data.m3.g3);
-    gtk_entry_set_text(entry_m3g4, g510s_data.m3.g4);
-    gtk_entry_set_text(entry_m3g5, g510s_data.m3.g5);
-    gtk_entry_set_text(entry_m3g6, g510s_data.m3.g6);
-    gtk_entry_set_text(entry_m3g7, g510s_data.m3.g7);
-    gtk_entry_set_text(entry_m3g8, g510s_data.m3.g8);
-    gtk_entry_set_text(entry_m3g9, g510s_data.m3.g9);
-    gtk_entry_set_text(entry_m3g10, g510s_data.m3.g10);
-    gtk_entry_set_text(entry_m3g11, g510s_data.m3.g11);
-    gtk_entry_set_text(entry_m3g12, g510s_data.m3.g12);
-    gtk_entry_set_text(entry_m3g13, g510s_data.m3.g13);
-    gtk_entry_set_text(entry_m3g14, g510s_data.m3.g14);
-    gtk_entry_set_text(entry_m3g15, g510s_data.m3.g15);
-    gtk_entry_set_text(entry_m3g16, g510s_data.m3.g16);
-    gtk_entry_set_text(entry_m3g17, g510s_data.m3.g17);
-    gtk_entry_set_text(entry_m3g18, g510s_data.m3.g18);
-    gtk_entry_set_text(entry_mrg1, g510s_data.mr.g1);
-    gtk_entry_set_text(entry_mrg2, g510s_data.mr.g2);
-    gtk_entry_set_text(entry_mrg3, g510s_data.mr.g3);
-    gtk_entry_set_text(entry_mrg4, g510s_data.mr.g4);
-    gtk_entry_set_text(entry_mrg5, g510s_data.mr.g5);
-    gtk_entry_set_text(entry_mrg6, g510s_data.mr.g6);
-    gtk_entry_set_text(entry_mrg7, g510s_data.mr.g7);
-    gtk_entry_set_text(entry_mrg8, g510s_data.mr.g8);
-    gtk_entry_set_text(entry_mrg9, g510s_data.mr.g9);
-    gtk_entry_set_text(entry_mrg10, g510s_data.mr.g10);
-    gtk_entry_set_text(entry_mrg11, g510s_data.mr.g11);
-    gtk_entry_set_text(entry_mrg12, g510s_data.mr.g12);
-    gtk_entry_set_text(entry_mrg13, g510s_data.mr.g13);
-    gtk_entry_set_text(entry_mrg14, g510s_data.mr.g14);
-    gtk_entry_set_text(entry_mrg15, g510s_data.mr.g15);
-    gtk_entry_set_text(entry_mrg16, g510s_data.mr.g16);
-    gtk_entry_set_text(entry_mrg17, g510s_data.mr.g17);
-    gtk_entry_set_text(entry_mrg18, g510s_data.mr.g18);
+    struct m_data_s *profiles[4] = { &g510s_data.m1, &g510s_data.m2, &g510s_data.m3, &g510s_data.mr };
+    GtkEntry **entries[4] = { entry_m1, entry_m2, entry_m3, entry_mr };
+    for (int b = 0; b < 4; b++) {
+        for (int g = 1; g <= GKEY_COUNT; g++) {
+            if (entries[b][g]) {
+                gtk_entry_set_text(entries[b][g], gkey_field(profiles[b], g));
+            }
+        }
+    }
     // Update menu toggles
     gtk_check_menu_item_set_active(menuautosave, g510s_data.auto_save_on_quit ? TRUE : FALSE);
     gtk_check_menu_item_set_active(menucolorfade, g510s_data.color_fade ? TRUE : FALSE);
@@ -1207,82 +1360,18 @@ int main(int argc, char *argv[]) {
   greenscale_mr = GTK_RANGE(gtk_builder_get_object(builder, "greenscale_mr"));
   bluescale_mr = GTK_RANGE(gtk_builder_get_object(builder, "bluescale_mr"));
   
-  // text entries
-  entry_m1g1 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g1"));
-  entry_m1g2 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g2"));
-  entry_m1g3 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g3"));
-  entry_m1g4 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g4"));
-  entry_m1g5 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g5"));
-  entry_m1g6 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g6"));
-  entry_m1g7 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g7"));
-  entry_m1g8 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g8"));
-  entry_m1g9 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g9"));
-  entry_m1g10 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g10"));
-  entry_m1g11 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g11"));
-  entry_m1g12 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g12"));
-  entry_m1g13 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g13"));
-  entry_m1g14 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g14"));
-  entry_m1g15 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g15"));
-  entry_m1g16 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g16"));
-  entry_m1g17 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g17"));
-  entry_m1g18 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m1g18"));
-  
-  entry_m2g1 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g1"));
-  entry_m2g2 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g2"));
-  entry_m2g3 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g3"));
-  entry_m2g4 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g4"));
-  entry_m2g5 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g5"));
-  entry_m2g6 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g6"));
-  entry_m2g7 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g7"));
-  entry_m2g8 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g8"));
-  entry_m2g9 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g9"));
-  entry_m2g10 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g10"));
-  entry_m2g11 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g11"));
-  entry_m2g12 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g12"));
-  entry_m2g13 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g13"));
-  entry_m2g14 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g14"));
-  entry_m2g15 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g15"));
-  entry_m2g16 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g16"));
-  entry_m2g17 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g17"));
-  entry_m2g18 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m2g18"));
-  
-  entry_m3g1 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g1"));
-  entry_m3g2 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g2"));
-  entry_m3g3 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g3"));
-  entry_m3g4 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g4"));
-  entry_m3g5 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g5"));
-  entry_m3g6 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g6"));
-  entry_m3g7 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g7"));
-  entry_m3g8 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g8"));
-  entry_m3g9 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g9"));
-  entry_m3g10 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g10"));
-  entry_m3g11 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g11"));
-  entry_m3g12 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g12"));
-  entry_m3g13 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g13"));
-  entry_m3g14 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g14"));
-  entry_m3g15 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g15"));
-  entry_m3g16 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g16"));
-  entry_m3g17 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g17"));
-  entry_m3g18 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_m3g18"));
-  
-  entry_mrg1 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg1"));
-  entry_mrg2 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg2"));
-  entry_mrg3 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg3"));
-  entry_mrg4 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg4"));
-  entry_mrg5 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg5"));
-  entry_mrg6 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg6"));
-  entry_mrg7 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg7"));
-  entry_mrg8 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg8"));
-  entry_mrg9 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg9"));
-  entry_mrg10 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg10"));
-  entry_mrg11 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg11"));
-  entry_mrg12 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg12"));
-  entry_mrg13 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg13"));
-  entry_mrg14 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg14"));
-  entry_mrg15 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg15"));
-  entry_mrg16 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg16"));
-  entry_mrg17 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg17"));
-  entry_mrg18 = GTK_ENTRY(gtk_builder_get_object(builder, "entry_mrg18"));
+  // text entries (macro G-keys), stored per profile in arrays
+  {
+    GtkEntry **banks[4] = { entry_m1, entry_m2, entry_m3, entry_mr };
+    const char *bank_names[4] = { "m1", "m2", "m3", "mr" };
+    for (int b = 0; b < 4; b++) {
+      for (int g = 1; g <= GKEY_COUNT; g++) {
+        char id[32];
+        snprintf(id, sizeof(id), "entry_%sg%d", bank_names[b], g);
+        banks[b][g] = GTK_ENTRY(gtk_builder_get_object(builder, id));
+      }
+    }
+  }
   
   // New UI elements for editor, presets, preview
   display_editor = GTK_TEXT_VIEW(gtk_builder_get_object(builder, "display_editor"));
@@ -1330,8 +1419,8 @@ int main(int argc, char *argv[]) {
   // Setup preset combos
   if (preset_combo) {
       gtk_combo_box_text_append_text(preset_combo, "None");
-      for (int i = 0; i < preset_count; i++) {
-          gtk_combo_box_text_append_text(preset_combo, presets[i].name);
+      for (int i = 0; i < bank_config_count; i++) {
+          gtk_combo_box_text_append_text(preset_combo, bank_configs[i].name);
       }
       gtk_combo_box_set_active(GTK_COMBO_BOX(preset_combo), 0);
   }
@@ -1344,9 +1433,9 @@ int main(int argc, char *argv[]) {
           const char *current = get_bank_preset(bank);
           gtk_combo_box_text_append_text(bank_combos[b], "None");
           int active_idx = 0;
-          for (int i = 0; i < preset_count; i++) {
-              gtk_combo_box_text_append_text(bank_combos[b], presets[i].name);
-              if (strcmp(presets[i].name, current) == 0) {
+          for (int i = 0; i < bank_config_count; i++) {
+              gtk_combo_box_text_append_text(bank_combos[b], bank_configs[i].name);
+              if (strcmp(bank_configs[i].name, current) == 0) {
                   active_idx = i + 1;
               }
           }
@@ -1365,105 +1454,17 @@ int main(int argc, char *argv[]) {
   app_indicator_set_attention_icon(indicator, "/usr/local/share/g510s/g510s-alert.svg");
   app_indicator_set_menu(indicator, GTK_MENU(indicator_menu));
   
+  // Replace the colour sliders on each profile page with the new colour picker
+  setup_color_pickers(builder);
+
   gtk_builder_connect_signals(builder, NULL);
   g_object_unref(G_OBJECT(builder));
   
   // set program version
   gtk_about_dialog_set_version(aboutdialog, G510S_VERSION);
   
-  // set our range values
-  gtk_range_set_value(redscale_m1, g510s_data.m1.red);
-  gtk_range_set_value(greenscale_m1, g510s_data.m1.green);
-  gtk_range_set_value(bluescale_m1, g510s_data.m1.blue);
-  
-  gtk_range_set_value(redscale_m2, g510s_data.m2.red);
-  gtk_range_set_value(greenscale_m2, g510s_data.m2.green);
-  gtk_range_set_value(bluescale_m2, g510s_data.m2.blue);
-  
-  gtk_range_set_value(redscale_m3, g510s_data.m3.red);
-  gtk_range_set_value(greenscale_m3, g510s_data.m3.green);
-  gtk_range_set_value(bluescale_m3, g510s_data.m3.blue);
-  
-  gtk_range_set_value(redscale_mr, g510s_data.mr.red);
-  gtk_range_set_value(greenscale_mr, g510s_data.mr.green);
-  gtk_range_set_value(bluescale_mr, g510s_data.mr.blue);
-  
-  // set our entry text
-  gtk_entry_set_text(entry_m1g1, g510s_data.m1.g1);
-  gtk_entry_set_text(entry_m1g2, g510s_data.m1.g2);
-  gtk_entry_set_text(entry_m1g3, g510s_data.m1.g3);
-  gtk_entry_set_text(entry_m1g4, g510s_data.m1.g4);
-  gtk_entry_set_text(entry_m1g5, g510s_data.m1.g5);
-  gtk_entry_set_text(entry_m1g6, g510s_data.m1.g6);
-  gtk_entry_set_text(entry_m1g7, g510s_data.m1.g7);
-  gtk_entry_set_text(entry_m1g8, g510s_data.m1.g8);
-  gtk_entry_set_text(entry_m1g9, g510s_data.m1.g9);
-  gtk_entry_set_text(entry_m1g10, g510s_data.m1.g10);
-  gtk_entry_set_text(entry_m1g11, g510s_data.m1.g11);
-  gtk_entry_set_text(entry_m1g12, g510s_data.m1.g12);
-  gtk_entry_set_text(entry_m1g13, g510s_data.m1.g13);
-  gtk_entry_set_text(entry_m1g14, g510s_data.m1.g14);
-  gtk_entry_set_text(entry_m1g15, g510s_data.m1.g15);
-  gtk_entry_set_text(entry_m1g16, g510s_data.m1.g16);
-  gtk_entry_set_text(entry_m1g17, g510s_data.m1.g17);
-  gtk_entry_set_text(entry_m1g18, g510s_data.m1.g18);
-  
-  gtk_entry_set_text(entry_m2g1, g510s_data.m2.g1);
-  gtk_entry_set_text(entry_m2g2, g510s_data.m2.g2);
-  gtk_entry_set_text(entry_m2g3, g510s_data.m2.g3);
-  gtk_entry_set_text(entry_m2g4, g510s_data.m2.g4);
-  gtk_entry_set_text(entry_m2g5, g510s_data.m2.g5);
-  gtk_entry_set_text(entry_m2g6, g510s_data.m2.g6);
-  gtk_entry_set_text(entry_m2g7, g510s_data.m2.g7);
-  gtk_entry_set_text(entry_m2g8, g510s_data.m2.g8);
-  gtk_entry_set_text(entry_m2g9, g510s_data.m2.g9);
-  gtk_entry_set_text(entry_m2g10, g510s_data.m2.g10);
-  gtk_entry_set_text(entry_m2g11, g510s_data.m2.g11);
-  gtk_entry_set_text(entry_m2g12, g510s_data.m2.g12);
-  gtk_entry_set_text(entry_m2g13, g510s_data.m2.g13);
-  gtk_entry_set_text(entry_m2g14, g510s_data.m2.g14);
-  gtk_entry_set_text(entry_m2g15, g510s_data.m2.g15);
-  gtk_entry_set_text(entry_m2g16, g510s_data.m2.g16);
-  gtk_entry_set_text(entry_m2g17, g510s_data.m2.g17);
-  gtk_entry_set_text(entry_m2g18, g510s_data.m2.g18);
-  
-  gtk_entry_set_text(entry_m3g1, g510s_data.m3.g1);
-  gtk_entry_set_text(entry_m3g2, g510s_data.m3.g2);
-  gtk_entry_set_text(entry_m3g3, g510s_data.m3.g3);
-  gtk_entry_set_text(entry_m3g4, g510s_data.m3.g4);
-  gtk_entry_set_text(entry_m3g5, g510s_data.m3.g5);
-  gtk_entry_set_text(entry_m3g6, g510s_data.m3.g6);
-  gtk_entry_set_text(entry_m3g7, g510s_data.m3.g7);
-  gtk_entry_set_text(entry_m3g8, g510s_data.m3.g8);
-  gtk_entry_set_text(entry_m3g9, g510s_data.m3.g9);
-  gtk_entry_set_text(entry_m3g10, g510s_data.m3.g10);
-  gtk_entry_set_text(entry_m3g11, g510s_data.m3.g11);
-  gtk_entry_set_text(entry_m3g12, g510s_data.m3.g12);
-  gtk_entry_set_text(entry_m3g13, g510s_data.m3.g13);
-  gtk_entry_set_text(entry_m3g14, g510s_data.m3.g14);
-  gtk_entry_set_text(entry_m3g15, g510s_data.m3.g15);
-  gtk_entry_set_text(entry_m3g16, g510s_data.m3.g16);
-  gtk_entry_set_text(entry_m3g17, g510s_data.m3.g17);
-  gtk_entry_set_text(entry_m3g18, g510s_data.m3.g18);
-  
-  gtk_entry_set_text(entry_mrg1, g510s_data.mr.g1);
-  gtk_entry_set_text(entry_mrg2, g510s_data.mr.g2);
-  gtk_entry_set_text(entry_mrg3, g510s_data.mr.g3);
-  gtk_entry_set_text(entry_mrg4, g510s_data.mr.g4);
-  gtk_entry_set_text(entry_mrg5, g510s_data.mr.g5);
-  gtk_entry_set_text(entry_mrg6, g510s_data.mr.g6);
-  gtk_entry_set_text(entry_mrg7, g510s_data.mr.g7);
-  gtk_entry_set_text(entry_mrg8, g510s_data.mr.g8);
-  gtk_entry_set_text(entry_mrg9, g510s_data.mr.g9);
-  gtk_entry_set_text(entry_mrg10, g510s_data.mr.g10);
-  gtk_entry_set_text(entry_mrg11, g510s_data.mr.g11);
-  gtk_entry_set_text(entry_mrg12, g510s_data.mr.g12);
-  gtk_entry_set_text(entry_mrg13, g510s_data.mr.g13);
-  gtk_entry_set_text(entry_mrg14, g510s_data.mr.g14);
-  gtk_entry_set_text(entry_mrg15, g510s_data.mr.g15);
-  gtk_entry_set_text(entry_mrg16, g510s_data.mr.g16);
-  gtk_entry_set_text(entry_mrg17, g510s_data.mr.g17);
-  gtk_entry_set_text(entry_mrg18, g510s_data.mr.g18);
+  // apply the loaded configuration to the UI (colours, macros and menus)
+  refresh_gui_internal();
   
   // set whether we want to hide the window
   if (g510s_data.gui_hidden) {
