@@ -28,6 +28,9 @@
 #define TERMINAL_CHAR_HEIGHT 5
 #define DISPLAY_WIDTH 160
 #define DISPLAY_HEIGHT 43
+// The 40 G15 fonts bundled with libg15render (default-00.fnt .. default-39.fnt).
+// Sizes 0-3 are the standard faces, 4-39 are pixel-height faces.
+#define G15_MAX_FONT_SIZE 39
 #define TERMINAL_COLS (DISPLAY_WIDTH / TERMINAL_CHAR_WIDTH)
 #define TERMINAL_ROWS (DISPLAY_HEIGHT / TERMINAL_CHAR_HEIGHT)
 

@@ -1322,13 +1322,27 @@ static int render_scripted_display(g15canvas *canvas, const char *filepath) {
             }
             int text_len = strlen(output);
 
-            // Font width logic
+            /* All 40 bundled fonts (0-39) are selectable via the size field:
+               0-3 are the standard small/medium/large/huge faces, 4-39 are
+               pixel-height faces. Clamp anything out of range. */
+            if (size < 0) size = 0;
+            if (size > G15_MAX_FONT_SIZE) size = G15_MAX_FONT_SIZE;
+
+            /* Font width logic - used for C/R alignment. Widths come from the
+               bundled font metrics (glyph width + gap); sizes 4+ scale with
+               the pixel height, so an approximation keeps alignment sane. */
             int char_width;
             switch (size) {
                 case 0: char_width = 3; break;
                 case 1: char_width = 4; break;
                 case 2: char_width = 7; break;
-                default: char_width = 5; break;
+                case 3: char_width = 11; break;
+                default:
+                    /* pixel-height faces: roughly 0.42 px of width per px of
+                       height, minimum 3, which matches the shipped faces */
+                    char_width = (size * 42) / 100;
+                    if (char_width < 3) char_width = 3;
+                    break;
             }
             int spacing = 1;
             int total_width = text_len * (char_width + spacing) - spacing;

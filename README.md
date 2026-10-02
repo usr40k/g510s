@@ -303,6 +303,43 @@ The G510s can display a terminal emulator on the LCD screen. This feature:
 
 See the `display_examples` directory for the files I put together
 
+## Text fonts
+
+Text lines take a size as their 5th field:
+
+```g510s
+x,y,align,angle,size,// command //
+```
+
+All **40 bundled fonts** are selectable (`0`–`39`):
+
+| Size | Font |
+|------|------|
+| `0` | small (3px wide) |
+| `1` | medium (4px) |
+| `2` | large (7px) |
+| `3` | huge (11px) |
+| `4`–`39` | pixel-height faces, growing from ~4px up to ~52px tall |
+
+Sizes outside `0`–`39` are clamped, so a stray value can never crash the daemon.
+Note that pixel-height faces are drawn without a background (`paint_bg` is off
+above size 3), so large text overlays graphics rather than clearing them.
+
+Because the LCD is only 160x43, sizes above ~20 will not fit much text. Keep
+`align` in mind too: it is measured with an estimated character width, so `C`
+and `R` alignment is approximate for the larger faces.
+
+**Examples:**
+
+```g510s
+10,1,L,0,0,// echo "tiny (size 0)" //      # small
+10,8,L,0,2,// echo "large (size 2)" //      # large
+80,20,C,0,10,// echo "size 10" //           # centred, medium-large
+10,30,L,0,20,// echo "size 20" //           # big, pixel-height face
+```
+
+---
+
 ## Fill Modes for Shapes
 
 For `RECT`, `ELLIPSE`, and `POLY`, the last argument (optional) controls the fill mode:
