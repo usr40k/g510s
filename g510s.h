@@ -23,7 +23,7 @@
 #ifndef G510S_H
 #define G510S_H
 
-#define G510S_VERSION "0.1.0"
+#define G510S_VERSION "1.0.0"
 
 // Terminal display settings
 #define TERMINAL_FONT_SIZE 0
