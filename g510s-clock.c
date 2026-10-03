@@ -16,7 +16,7 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1335  USA
  *
  *  Copyright © 2015 John Augustine
- *  Copyright © 2025 usr_40476
+ *  Copyright © 2025-2026 usr40k
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,12 +37,12 @@
 #include <errno.h>
 
 #include "g510s.h"
+#include "g510s-vars.h"
 
 
 // Define terminal variables (declared as extern in g510s.h)
 
 // Preview buffer - declared in g510s.c
-extern unsigned char preview_buffer[G15_BUFFER_LEN];
 extern int terminal_mode;
 extern int dump_display_buffer;
 static int display_buffer_dumped = 0;  // Only dump once
@@ -268,6 +268,16 @@ static int find_var(script_var_t *vars, int var_count, const char *name) {
 }
 
 static void substitute_vars(char *line, script_var_t *vars, int var_count) {
+    // Predefined (%name/$name) and persistent (!var) values first; @name
+    // runtime vars are resolved by the loop below and take precedence.
+    {
+        char expanded[MAX_LINE_LEN * 2] = {0};
+        if (g510s_expand_predefined(line, expanded, sizeof(expanded))) {
+            strncpy(line, expanded, MAX_LINE_LEN - 1);
+            line[MAX_LINE_LEN - 1] = '\0';
+        }
+    }
+
     char buf[MAX_LINE_LEN * 2] = {0};
     char *src = line, *dst = buf;
     while (*src) {
@@ -374,6 +384,16 @@ static void render_notification(g15canvas *canvas) {
         strncpy(display_text, notification_text, sizeof(display_text));
     }
     
+    // Invert the toast area so it reads as a solid banner behind the text,
+    // then draw a border/frame around it.
+    {
+        const int bar_h = 11;
+        for (int y = 0; y < bar_h; y++)
+            for (int x = 0; x < DISPLAY_WIDTH; x++) {
+                g15r_setPixel(canvas, x, y, g15r_getPixel(canvas, x, y) ? 0 : 1);
+            }
+    }
+
     // Draw notification bar at top of display
     // First, draw a border/frame
     for (int x = 0; x < DISPLAY_WIDTH; x++) {
@@ -700,6 +720,56 @@ static int render_scripted_display(g15canvas *canvas, const char *filepath) {
 
         // --- Variable substitution ---
         substitute_vars(line, vars, var_count);
+
+        // --- !toast: pop a notification on the keyboard LCD ---
+        // Usage:  !toast <text...> [duration_ms] [priority]
+        if (strncmp(line, "!toast", 6) == 0 &&
+            (line[6] == '\0' || line[6] == ' ')) {
+            char msg[200] = {0};
+            int dur = 2000, prio = 0;
+            const char *rest = line + 6;
+            while (*rest == ' ') rest++;
+            // Trailing "<duration> <priority>" are optional numeric args.
+            int words = 0;
+            for (const char *p = rest; *p; p++) if (*p == ' ') words++;
+            if (words >= 2) {
+                const char *last2 = strrchr(rest, ' ');
+                if (last2) {
+                    char a[16] = {0}, b[16] = {0};
+                    const char *sp = last2;
+                    while (sp > rest && *(sp - 1) != ' ') sp--;
+                    snprintf(b, sizeof(b), "%s", last2 + 1);
+                    snprintf(a, sizeof(a), "%.*s", (int)(last2 - sp), sp);
+                    if (isdigit((unsigned char)a[0]) && isdigit((unsigned char)b[0])) {
+                        dur = atoi(a);
+                        prio = atoi(b);
+                        snprintf(msg, sizeof(msg), "%.*s", (int)(sp - rest - 1), rest);
+                    }
+                }
+            }
+            if (!msg[0]) snprintf(msg, sizeof(msg), "%s", rest);
+            if (dur < 300) dur = 2000;
+            display_notification(msg, dur, prio);
+            g510s_note_action(msg);
+            continue;
+        }
+
+        // --- !var: set a persistent script variable -----------------------
+        // Usage:  !var <name> <value...>
+        if (strncmp(line, "!var", 4) == 0 &&
+            (line[4] == '\0' || line[4] == ' ')) {
+            char pname[G510S_PVAR_NAME] = {0};
+            const char *rest = line + 4;
+            while (*rest == ' ') rest++;
+            int n = 0;
+            while (*rest && *rest != ' ' && n < G510S_PVAR_NAME - 1)
+                pname[n++] = *rest++;
+            pname[n] = '\0';
+            while (*rest == ' ') rest++;
+            if (*rest && *pname)
+                g510s_pvars_set(pname, rest);
+            continue;
+        }
 
         // --- Handle !set commands for rendering control ---
         if (strncmp(line, "!set ", 5) == 0) {

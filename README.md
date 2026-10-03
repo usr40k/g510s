@@ -81,7 +81,7 @@ You can configure display rendering behavior at runtime by adding `!set` command
 ### Available Parameters
 
 | Parameter | Value | Description |
-|-----------|-------|-------------|
+| ----------- | ------- | ------------- |
 | `delay` | milliseconds | Add delay between renders (for high-FPS updates) |
 | `invert` | 0 or 1 | Invert display (1=inverted, 0=normal) |
 | `brightness` | 0-100 | Simulate brightness (100=full, 0=off) |
@@ -190,7 +190,7 @@ They **do not** change the colour stored in the GUI, so the colour you picked
 per profile (M1/M2/M3/MR) stays untouched and is still what gets saved.
 
 | Command | Effect |
-|---------|--------|
+| --------- | -------- |
 | `!led <r> <g> <b>` | Set the LED colour (0-255 each, commas or spaces allowed) |
 | `!led off` | Turn the LED off (`!led 0 0 0`) |
 | `!led ui` | Restore the colour selected in the GUI for the active profile |
@@ -210,7 +210,7 @@ Because the display script re-runs about once a second, `!led` can be used to
 build timed effects. Three complete scripts are in `display_examples/`:
 
 | Script | What it does |
-|--------|--------------|
+| -------- | -------------- |
 | `lock_fade.txt` | Ramps the backlight down to black while the screen is locked, then back up on unlock |
 | `rainbow.txt` | Cycles the backlight through the full hue circle, with the hue and RGB shown on the LCD |
 | `combined.txt` | Rainbow while unlocked, smooth fade to black when locked, then back to the rainbow |
@@ -219,7 +219,7 @@ All three carry their state in a small file under `~/.config/g510s/` (the
 brightness level / hue have to survive between renders, because script
 variables are reset on every pass):
 
-```
+```plaintext
 $HOME/.config/g510s/fade.level     # lock_fade   -> brightness 0..255
 $HOME/.config/g510s/rainbow.hue    # rainbow     -> hue 0..359
 $HOME/.config/g510s/combo.state    # combined    -> "<hue> <level>"
@@ -281,7 +281,7 @@ GRAPH,VBAR,150,0,10,43,// top -bn1 | grep "Cpu(s)" | awk '{print int($2+$4)}' //
 
 The G510s can display a terminal emulator on the LCD screen. This feature:
 
-*It is however, currently not finished and help is appreciated*
+NOTE: *It is however, currently not finished and help is appreciated*
 
 * Runs a shell in a PTY (pseudo-terminal)
 * Filters ANSI escape sequences for clean display
@@ -299,7 +299,7 @@ The G510s can display a terminal emulator on the LCD screen. This feature:
 
 ---
 
-## Display examples:
+## Display examples
 
 See the `display_examples` directory for the files I put together
 
@@ -314,7 +314,7 @@ x,y,align,angle,size,// command //
 All **40 bundled fonts** are selectable (`0`–`39`):
 
 | Size | Font |
-|------|------|
+| ------ | ------ |
 | `0` | small (3px wide) |
 | `1` | medium (4px) |
 | `2` | large (7px) |

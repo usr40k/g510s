@@ -1,66 +1,32 @@
-default: g510s
+# g510s - top-level convenience Makefile.
+#
+# The Qt6/QML build is the primary frontend and is driven by CMake:
+#
+#     make            # build the Qt app into ./build
+#     make install
+#
+# The original GTK3 build is preserved under legacy-gtk/ and can still be
+# built explicitly with `make gtk` (requires gtk3 + libappindicator).
 
-g510s.o: g510s.c g510s.h
-	$(CC) $(CFLAGS) -fcommon -Wall `pkg-config --cflags gtk+-3.0 appindicator3-0.1` -c g510s.c -o g510s.o
+QT_BUILD ?= build
+CMAKE    ?= cmake
+NIX_CFLAGS  ?=
+NIX_LDFLAGS ?=
 
-g510s-clock.o: g510s-clock.c g510s.h
-	$(CC) $(CFLAGS) -fcommon -Wall -c g510s-clock.c -o g510s-clock.o
+all: qt
 
-g510s-config.o: g510s-config.c g510s.h
-	$(CC) $(CFLAGS) -fcommon -Wall -c g510s-config.c -o g510s-config.o
-
-g510s-keys.o: g510s-keys.c g510s.h
-	$(CC) $(CFLAGS) -fcommon -Wall -c g510s-keys.c -o g510s-keys.o
-
-g510s-list.o: g510s-list.c g510s.h
-	$(CC) $(CFLAGS) -fcommon -Wall -c g510s-list.c -o g510s-list.o
-
-g510s-misc.o: g510s-misc.c g510s.h
-	$(CC) $(CFLAGS) -fcommon -Wall -c g510s-misc.c -o g510s-misc.o
-
-g510s-net.o: g510s-net.c g510s.h
-	$(CC) $(CFLAGS) -fcommon -Wall -c g510s-net.c -o g510s-net.o
-
-g510s-signals.o: g510s-signals.c g510s.h
-	$(CC) $(CFLAGS) -fcommon -Wall `pkg-config --cflags gtk+-3.0` -c g510s-signals.c -o g510s-signals.o
-
-g510s-threads.o: g510s-threads.c g510s.h
-	$(CC) $(CFLAGS) -fcommon -Wall `pkg-config --cflags appindicator3-0.1` -c g510s-threads.c -o g510s-threads.o
-
-g510s: g510s.o g510s-clock.o g510s-config.o g510s-keys.o g510s-list.o g510s-misc.o g510s-net.o g510s-signals.o g510s-threads.o
-	$(CC) $(CFLAGS) -fcommon -Wall g510s.o g510s-clock.o g510s-config.o g510s-keys.o g510s-list.o g510s-misc.o g510s-net.o g510s-signals.o g510s-threads.o -o g510s -lg15 -lg15render -lpthread -rdynamic `pkg-config --libs gtk+-3.0 appindicator3-0.1` -lm
-
-install:
-	-mkdir /usr/local/share/g510s
-	-mkdir /usr/share/doc
-	-mkdir /usr/share/doc/g510s
-	-cp g510s.svg /usr/local/share/g510s
-	-cp g510s-alert.svg /usr/local/share/g510s
-	-cp g510s.glade /usr/local/share/g510s
-	-cp g510s /usr/local/bin
-	-cp README.md /usr/share/doc/g510s
-	-cp 99-g510s.rules /lib/udev/rules.d
-
-uninstall:
-	-rm -f /usr/local/share/g510s/g510s.svg
-	-rm -f /usr/local/share/g510s/g510s-alert.svg
-	-rm -f /usr/local/share/g510s/g510s.glade
-	-rm -f /usr/local/bin/g510s
-	-rm -f /lib/udev/rules.d/99-g510s.rules
-	-rm -f /etc/xdg/autostart/g510s.desktop
-	-rm -f /usr/doc/g510s/README.md
-	-rmdir /usr/local/share/g510s
-	-rmdir /usr/doc/g510s
+qt:
+	$(CMAKE) -S qt6 -B $(QT_BUILD) -DCMAKE_BUILD_TYPE=Release
+	$(CMAKE) --build $(QT_BUILD)
 
 clean:
-	-rm -f g510s
-	-rm -f g510s.o
-	-rm -f g510s-clock.o
-	-rm -f g510s-config.o
-	-rm -f g510s-keys.o
-	-rm -f g510s-list.o
-	-rm -f g510s-misc.o
-	-rm -f g510s-net.o
-	-rm -f g510s-display.o
-	-rm -f g510s-signals.o
-	-rm -f g510s-threads.o
+	-rm -rf $(QT_BUILD)
+
+install: qt
+	-$(CMAKE) --install $(QT_BUILD)
+
+.PHONY: all qt clean install gtk
+
+gtk:
+	@echo "The GTK frontend now lives in legacy-gtk/."
+	@echo "It is no longer built by default; see legacy-gtk/README.md."

@@ -16,7 +16,7 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1335  USA
  *
  *  Copyright © 2015 John Augustine
- *  Copyright © 2025 usr_40476
+ *  Copyright © 2025-2026 usr40k
  */
 
 
@@ -26,6 +26,7 @@
 #include <libg15.h>
 
 #include "g510s.h"
+#include "g510s-vars.h"
 
 
 int is_number(char number[]) {
@@ -66,6 +67,17 @@ void convert_buf(lcd_t *lcd, unsigned char * orig_buf) {
 }
 
 void set_mkey_state(int state) {
+  // libg15's setLEDs() dereferences the (NULL) device handle when no keyboard
+  // is attached, so never call into it unless setupLibG15() succeeded.
+  if (!device_found) {
+    // Still record the state so the UI and update thread see the new bank.
+    if (state >= 1 && state <= 4) {
+      g510s_data.mkey_state = state;
+      update = state;
+    }
+    return;
+  }
+
   switch (state) {
     case 1:
       g510s_data.mkey_state = state;
@@ -95,7 +107,13 @@ void set_mkey_state(int state) {
 
 void set_color() {
   struct m_data_s *mkey;
-  
+
+  // Same NULL-device hazard as set_mkey_state(): setG510LEDColor() is a no-op
+  // only when libg15 knows about a device.
+  if (!device_found) {
+    return;
+  }
+
   switch (g510s_data.mkey_state) {
     case 1:
       mkey = &g510s_data.m1;
@@ -199,5 +217,7 @@ void run_gkey_cmd(int gkey) {
       return;
   }
   
+  if (cmd && *cmd)
+    g510s_note_action(cmd);
   system(cmd);
 }

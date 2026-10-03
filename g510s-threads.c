@@ -16,7 +16,7 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1335  USA
  *
  *  Copyright © 2015 John Augustine
- *  Copyright © 2025 usr_40476
+ *  Copyright © 2025-2026 usr40k
  */
 
 
@@ -28,15 +28,14 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <libg15.h>
-#include <libappindicator3-0.1/libappindicator/app-indicator.h>
 
 #include "g510s.h"
 
 
-extern AppIndicator *indicator;
+// Indicator handling is delegated to whichever UI frontend is linked in
+// (see ui_set_device_attention() in the GTK and Qt frontends).
 
 // Preview buffer for GUI - copy of the LCD buffer before sending to device
-extern unsigned char preview_buffer[G15_BUFFER_LEN];
 extern void update_preview();
 extern void display_notification(const char *text, int duration_ms, int priority);
 
@@ -150,7 +149,7 @@ void *key_function(void *lcdlist) {
       // handle hotplugging of keyboard or sound devices
       if (keyreturn == -ENODEV) {
         device_found = 0;
-        app_indicator_set_status(indicator, APP_INDICATOR_STATUS_ATTENTION);
+        ui_set_device_attention(1);
         exit_uinput();
         exitLibG15();
         while (!device_found) {
@@ -171,7 +170,7 @@ void *key_function(void *lcdlist) {
         if (displaylist->tail == displaylist->current) {
           displaylist->current->lcd->ident = 0;
         }
-        app_indicator_set_status(indicator, APP_INDICATOR_STATUS_ACTIVE);
+        ui_set_device_attention(0);
       }
     } else { // device was not found
       // wait for a device
@@ -193,7 +192,7 @@ void *key_function(void *lcdlist) {
       if (displaylist->tail == displaylist->current) {
         displaylist->current->lcd->ident = 0;
       }
-      app_indicator_set_status(indicator, APP_INDICATOR_STATUS_ACTIVE);
+      ui_set_device_attention(0);
     }
   }
   return NULL;

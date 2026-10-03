@@ -16,9 +16,12 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1335  USA
  *
  *  Copyright © 2015 John Augustine
- *  Copyright © 2025 usr_40476
+ *  Copyright © 2025-2026 usr40k
  */
 
+
+#ifndef G510S_H
+#define G510S_H
 
 #define G510S_VERSION "0.1.0"
 
@@ -75,19 +78,22 @@ typedef struct lcd_s {
 typedef struct lcdnode_s lcdnode_t;
 typedef struct lcdlist_s lcdlist_t;
 
+// NOTE: these used to be written as `} lcdnode_s;` which silently declared
+// unused global variables of the same name. They are now plain struct
+// definitions; the real globals are declared extern below.
 struct lcdnode_s {
   lcdlist_t *list;
   lcdnode_t *prev;
   lcdnode_t *next;
   lcdnode_t *last_priority;
   lcd_t *lcd;
-} lcdnode_s;
+};
 
 struct lcdlist_s {
   lcdnode_t *head;
   lcdnode_t *tail;
   lcdnode_t *current;
-} lcdlist_s;
+};
 
 //pthread_mutex_t lcdlist_mutex;
 
@@ -135,7 +141,8 @@ struct g510s_data_s {
   int notification_count;
   int notification_display_time; // ms to display each notification
   int notification_position;     // Current position in queue
-} g510s_data;
+};
+typedef struct g510s_data_s g510s_data_t;
 
 // Bank config structure - stores display script + macros for a bank
 typedef struct {
@@ -149,12 +156,25 @@ typedef struct {
 
 #define MAX_BANK_CONFIGS 20
 
-int leaving;
-int update;
-int device_found;
-char *usb_id;
-unsigned int connected_clients;
-unsigned int current_key_state;
+// These are defined once in g510s-config.c. They are declared extern here so
+// that the header can also be included from the C++ (Qt) frontend, where
+// tentative definitions would cause multiple-definition errors.
+extern int leaving;
+extern int update;
+extern int device_found;
+extern char *usb_id;
+extern unsigned int connected_clients;
+extern unsigned int current_key_state;
+
+extern struct g510s_data_s g510s_data;
+
+// Preview buffer shared by the renderer and whichever frontend is linked in.
+// Matches libg15's G15_BUFFER_LEN (160x43 1bpp + control bytes).
+#define G510S_PREVIEW_BUFFER_LEN 1048
+extern unsigned char preview_buffer[G510S_PREVIEW_BUFFER_LEN];
+
+// Dump the LCD buffer to disk every frame (--dump-display-buffer).
+extern int dump_display_buffer;
 
 // Terminal mode (declared as extern, defined in g510s-clock.c)
 extern int terminal_mode;
@@ -187,6 +207,16 @@ int init_uinput();
 void exit_uinput();
 void process_keys(lcdlist_t *displaylist, unsigned int key, unsigned int key_state);
 
+// Presets (defined in g510s-presets.c, shared by both frontends)
+void load_presets(void);
+void save_preset(const char *name);
+void load_preset(const char *name);
+void bind_preset_to_bank(int bank, const char *preset_name);
+const char *get_bank_preset(int bank);
+int preset_count(void);
+const char *preset_name_at(int index);
+char *macro_by_index(int mode, int idx);
+
 void digital_clock(lcd_t *lcd);
 
 void init_data();
@@ -211,7 +241,17 @@ void set_mkey_state(int state);
 void set_color();
 void run_gkey_cmd(int gkey);
 
+// --- Frontend hooks -------------------------------------------------------
+// Implemented by each UI frontend (GTK in g510s.c, Qt in qt6/backend.cpp).
+// ui_set_device_attention: 1 = device missing (attention icon), 0 = ok.
+// ui_request_refresh:      re-read g510s_data into the UI widgets.
+// update_preview:          repaint the LCD preview from preview_buffer.
+void ui_set_device_attention(int attention);
+void ui_request_refresh(void);
+
 void *lcd_client_function(void *display);
 void *key_function(void *lcdlist);
 void *update_function(void *lcdlist);
 void *server_function(void *lcdlist);
+
+#endif // G510S_H

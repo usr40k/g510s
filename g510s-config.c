@@ -16,7 +16,7 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1335  USA
  *
  *  Copyright © 2015 John Augustine
- *  Copyright © 2025 usr_40476
+ *  Copyright © 2025-2026 usr40k
  *  
  */
 
@@ -29,7 +29,30 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
+#include <libg15.h>
+
 #include "g510s.h"
+
+// Single definition of the globals declared extern in g510s.h.
+struct g510s_data_s g510s_data;
+
+int leaving = 0;
+int update = 0;
+int device_found = 0;
+char *usb_id = NULL;
+unsigned int connected_clients = 0;
+unsigned int current_key_state = 0;
+
+// Terminal mode was previously defined in the GTK frontend; keep it here so
+// both frontends share it.
+int terminal_mode = 0;
+char terminal_cmd[1024] = {0};
+
+// Preview buffer shared by the renderer and whichever frontend is linked in.
+unsigned char preview_buffer[G510S_PREVIEW_BUFFER_LEN];
+
+// Dump the LCD buffer to disk every frame (--dump-display-buffer).
+int dump_display_buffer = 0;
 
 void init_data() {
   // gui

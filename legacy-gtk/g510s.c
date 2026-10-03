@@ -16,7 +16,7 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1335  USA
  *
  *  Copyright © 2015 John Augustine
- *  Copyright © 2025 usr_40476
+ *  Copyright © 2025-2026 usr40k
  */
 
 
@@ -35,20 +35,7 @@
 #include <math.h>
 
 #include "g510s.h"
-
-// Terminal mode variables (referenced in this file)
-int terminal_mode = 0;
-char terminal_cmd[1024] = {0};
-
-// Display buffer for preview
-unsigned char preview_buffer[G15_BUFFER_LEN];
-
-// Dump display buffer flag
-int dump_display_buffer = 0;
-
-// Bank configs array
-static bank_config_t bank_configs[MAX_BANK_CONFIGS];
-static int bank_config_count = 0;
+#include "g510s-vars.h"
 
 // DBus interface and object path
 #define G510S_DBUS_NAME "org.g510s.control"
@@ -111,6 +98,9 @@ static gboolean on_handle_list_presets(GDBusConnection *connection, const gchar 
 // Forward declaration for display_notification (defined in g510s-clock.c)
 extern void display_notification(const char *text, int duration_ms, int priority);
 
+// AppIndicator handle (defined further down); used by ui_set_device_attention().
+extern AppIndicator *indicator;
+
 // Forward declaration for display_editor (declared below as global widget pointer)
 extern GtkTextView *display_editor;
 
@@ -124,184 +114,25 @@ void refresh_gui() {
     g_idle_add(refresh_gui_idle, NULL);
 }
 
-// --- Preset management ---
-// Helper: get display.txt path
-static void get_display_path(char *buf, size_t bufsize) {
-    char home[255];
-    strncpy(home, getenv("HOME"), sizeof(home));
-    if (home[0]) {
-        snprintf(buf, bufsize, "%s/.config/g510s/display.txt", home);
-    } else {
-        strncpy(buf, "display.txt", bufsize);
-    }
+// --- Frontend hooks (GTK implementation) ------------------------------------
+// Called from the worker threads via ui_set_device_attention().
+void ui_set_device_attention(int attention) {
+    if (!indicator) return;
+    app_indicator_set_status(indicator, attention ? APP_INDICATOR_STATUS_ATTENTION
+                                                 : APP_INDICATOR_STATUS_ACTIVE);
 }
 
-void load_presets() {
-    char configs_dir[512];
-    
-    bank_config_count = 0;
-    memset(bank_configs, 0, sizeof(bank_configs));
-    
-    char home_path[255];
-    strncpy(home_path, getenv("HOME"), sizeof(home_path));
-    if (home_path[0] == '\0') return;
-    
-    snprintf(configs_dir, sizeof(configs_dir), "%s/.config/g510s/presets/", home_path);
-    
-    DIR *dir = opendir(configs_dir);
-    if (!dir) return;
-    
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL && bank_config_count < MAX_BANK_CONFIGS) {
-        if (entry->d_type == DT_REG || entry->d_type == DT_LNK) {
-            char *dot = strrchr(entry->d_name, '.');
-            if (dot && strcmp(dot, ".txt") == 0) {
-                char fullpath[512];
-                snprintf(fullpath, sizeof(fullpath), "%s%s", configs_dir, entry->d_name);
-                
-                FILE *f = fopen(fullpath, "r");
-                if (f) {
-                    char name_no_ext[64];
-                    strncpy(name_no_ext, entry->d_name, strlen(entry->d_name) - 4);
-                    name_no_ext[strlen(entry->d_name) - 4] = '\0';
-                    strncpy(bank_configs[bank_config_count].name, name_no_ext, sizeof(bank_configs[bank_config_count].name) - 1);
-                    
-                    // Read the display script content
-                    size_t nread = fread(bank_configs[bank_config_count].display_script, 1, sizeof(bank_configs[bank_config_count].display_script) - 1, f);
-                    bank_configs[bank_config_count].display_script[nread] = '\0';
-                    
-                    fclose(f);
-                    bank_config_count++;
-                }
-            }
-        }
-    }
-    closedir(dir);
+void ui_request_refresh(void) {
+    refresh_gui();
 }
 
-void save_preset(const char *name) {
-    char presets_dir[512];
-    char fullpath[512];
-    
-    char home_path[255];
-    strncpy(home_path, getenv("HOME"), sizeof(home_path));
-    if (home_path[0] == '\0') return;
-    
-    snprintf(presets_dir, sizeof(presets_dir), "%s/.config/g510s/presets/", home_path);
-    mkdir(presets_dir, 0777);
-    
-    snprintf(fullpath, sizeof(fullpath), "%s%s.txt", presets_dir, name);
-    
-    // Read current display.txt content
-    char display_path[512];
-    get_display_path(display_path, sizeof(display_path));
-    
-    FILE *src = fopen(display_path, "r");
-    FILE *f = fopen(fullpath, "w");
-    if (f) {
-        if (src) {
-            char buf[4096];
-            size_t n;
-            while ((n = fread(buf, 1, sizeof(buf), src)) > 0) {
-                fwrite(buf, 1, n, f);
-            }
-            fclose(src);
-        }
-        fclose(f);
-        
-        // Update bank config list
-        int found = 0;
-        for (int i = 0; i < bank_config_count; i++) {
-            if (strcmp(bank_configs[i].name, name) == 0) {
-                found = 1;
-                FILE *r = fopen(fullpath, "r");
-                if (r) {
-                    size_t n = fread(bank_configs[i].display_script, 1, sizeof(bank_configs[i].display_script) - 1, r);
-                    bank_configs[i].display_script[n] = '\0';
-                    fclose(r);
-                }
-                break;
-            }
-        }
-        if (!found && bank_config_count < MAX_BANK_CONFIGS) {
-            strncpy(bank_configs[bank_config_count].name, name, sizeof(bank_configs[bank_config_count].name) - 1);
-            FILE *r = fopen(fullpath, "r");
-            if (r) {
-                size_t n = fread(bank_configs[bank_config_count].display_script, 1, sizeof(bank_configs[bank_config_count].display_script) - 1, r);
-                bank_configs[bank_config_count].display_script[n] = '\0';
-                fclose(r);
-            }
-            bank_config_count++;
-        }
-    }
+// Called by g510s-presets.c when a preset is loaded from D-Bus or the combo box.
+extern void (*ui_display_script_changed)(const char *);
+static void gtk_display_script_changed(const char *script) {
+    if (!display_editor) return;
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(display_editor);
+    gtk_text_buffer_set_text(buffer, script, -1);
 }
-
-void load_preset(const char *name) {
-    for (int i = 0; i < bank_config_count; i++) {
-        if (strcmp(bank_configs[i].name, name) == 0) {
-            char display_path[512];
-            get_display_path(display_path, sizeof(display_path));
-            FILE *f = fopen(display_path, "w");
-            if (f) {
-                fprintf(f, "%s", bank_configs[i].display_script);
-                fclose(f);
-                printf("G510s: Loaded display preset '%s'\n", name);
-            }
-            
-            // Update the editor if it exists
-            if (display_editor) {
-                GtkTextBuffer *buffer = gtk_text_view_get_buffer(display_editor);
-                gtk_text_buffer_set_text(buffer, bank_configs[i].display_script, -1);
-            }
-            
-            refresh_gui();
-            break;
-        }
-    }
-}
-
-// Bind display preset to macro bank
-void bind_preset_to_bank(int bank, const char *preset_name) {
-    if (bank < 1 || bank > 4) return;
-    char home_path[255];
-    char bind_path[512];
-    
-    strncpy(home_path, getenv("HOME"), sizeof(home_path));
-    if (home_path[0] == '\0') return;
-    
-    snprintf(bind_path, sizeof(bind_path), "%s/.config/g510s/bank%d_preset.txt", home_path, bank);
-    FILE *f = fopen(bind_path, "w");
-    if (f) {
-        fprintf(f, "%s\n", preset_name);
-        fclose(f);
-        printf("G510s: Bound preset '%s' to bank M%d\n", preset_name, bank);
-    }
-}
-
-// Read preset binding for a bank
-const char* get_bank_preset(int bank) {
-    static char preset_name[64];
-    char home_path[255];
-    char bind_path[512];
-    
-    strncpy(home_path, getenv("HOME"), sizeof(home_path));
-    if (home_path[0] == '\0') return "";
-    
-    snprintf(bind_path, sizeof(bind_path), "%s/.config/g510s/bank%d_preset.txt", home_path, bank);
-    FILE *f = fopen(bind_path, "r");
-    if (f) {
-        if (fgets(preset_name, sizeof(preset_name), f)) {
-            size_t len = strlen(preset_name);
-            if (len > 0 && preset_name[len-1] == '\n') preset_name[len-1] = '\0';
-        } else {
-            preset_name[0] = '\0';
-        }
-        fclose(f);
-        return preset_name;
-    }
-    return "";
-}
-
 
 // DBus property getter
 static GVariant* on_get_property(GDBusConnection *connection, const gchar *sender, const gchar *object_path,
@@ -397,12 +228,12 @@ static gboolean on_handle_list_presets(GDBusConnection *connection, const gchar 
                                       const gchar *interface_name, const gchar *method_name, GVariant *parameters,
                                       GDBusMethodInvocation *invocation, gpointer user_data) {
     load_presets();
-    const char **names = g_new(const char *, bank_config_count + 1);
-    for (int i = 0; i < bank_config_count; i++) {
-        names[i] = bank_configs[i].name;
+    const char **names = g_new(const char *, preset_count() + 1);
+    for (int i = 0; i < preset_count(); i++) {
+        names[i] = preset_name_at(i);
     }
-    names[bank_config_count] = NULL;
-    g_dbus_method_invocation_return_value(invocation, g_variant_new_strv(names, bank_config_count));
+    names[preset_count()] = NULL;
+    g_dbus_method_invocation_return_value(invocation, g_variant_new_strv(names, preset_count()));
     g_free(names);
     return TRUE;
 }
@@ -552,100 +383,6 @@ static gboolean on_handle_save_config(GDBusConnection *connection, const gchar *
     return TRUE;
 }
 
-// Macro helpers
-static char* get_macro_by_index(int mode, int idx) {
-    switch (mode) {
-        case 1:
-            switch (idx) {
-                case 1: return g510s_data.m1.g1;
-                case 2: return g510s_data.m1.g2;
-                case 3: return g510s_data.m1.g3;
-                case 4: return g510s_data.m1.g4;
-                case 5: return g510s_data.m1.g5;
-                case 6: return g510s_data.m1.g6;
-                case 7: return g510s_data.m1.g7;
-                case 8: return g510s_data.m1.g8;
-                case 9: return g510s_data.m1.g9;
-                case 10: return g510s_data.m1.g10;
-                case 11: return g510s_data.m1.g11;
-                case 12: return g510s_data.m1.g12;
-                case 13: return g510s_data.m1.g13;
-                case 14: return g510s_data.m1.g14;
-                case 15: return g510s_data.m1.g15;
-                case 16: return g510s_data.m1.g16;
-                case 17: return g510s_data.m1.g17;
-                case 18: return g510s_data.m1.g18;
-                default: return NULL;
-            }
-        case 2:
-            switch (idx) {
-                case 1: return g510s_data.m2.g1;
-                case 2: return g510s_data.m2.g2;
-                case 3: return g510s_data.m2.g3;
-                case 4: return g510s_data.m2.g4;
-                case 5: return g510s_data.m2.g5;
-                case 6: return g510s_data.m2.g6;
-                case 7: return g510s_data.m2.g7;
-                case 8: return g510s_data.m2.g8;
-                case 9: return g510s_data.m2.g9;
-                case 10: return g510s_data.m2.g10;
-                case 11: return g510s_data.m2.g11;
-                case 12: return g510s_data.m2.g12;
-                case 13: return g510s_data.m2.g13;
-                case 14: return g510s_data.m2.g14;
-                case 15: return g510s_data.m2.g15;
-                case 16: return g510s_data.m2.g16;
-                case 17: return g510s_data.m2.g17;
-                case 18: return g510s_data.m2.g18;
-                default: return NULL;
-            }
-        case 3:
-            switch (idx) {
-                case 1: return g510s_data.m3.g1;
-                case 2: return g510s_data.m3.g2;
-                case 3: return g510s_data.m3.g3;
-                case 4: return g510s_data.m3.g4;
-                case 5: return g510s_data.m3.g5;
-                case 6: return g510s_data.m3.g6;
-                case 7: return g510s_data.m3.g7;
-                case 8: return g510s_data.m3.g8;
-                case 9: return g510s_data.m3.g9;
-                case 10: return g510s_data.m3.g10;
-                case 11: return g510s_data.m3.g11;
-                case 12: return g510s_data.m3.g12;
-                case 13: return g510s_data.m3.g13;
-                case 14: return g510s_data.m3.g14;
-                case 15: return g510s_data.m3.g15;
-                case 16: return g510s_data.m3.g16;
-                case 17: return g510s_data.m3.g17;
-                case 18: return g510s_data.m3.g18;
-                default: return NULL;
-            }
-        case 4:
-            switch (idx) {
-                case 1: return g510s_data.mr.g1;
-                case 2: return g510s_data.mr.g2;
-                case 3: return g510s_data.mr.g3;
-                case 4: return g510s_data.mr.g4;
-                case 5: return g510s_data.mr.g5;
-                case 6: return g510s_data.mr.g6;
-                case 7: return g510s_data.mr.g7;
-                case 8: return g510s_data.mr.g8;
-                case 9: return g510s_data.mr.g9;
-                case 10: return g510s_data.mr.g10;
-                case 11: return g510s_data.mr.g11;
-                case 12: return g510s_data.mr.g12;
-                case 13: return g510s_data.mr.g13;
-                case 14: return g510s_data.mr.g14;
-                case 15: return g510s_data.mr.g15;
-                case 16: return g510s_data.mr.g16;
-                case 17: return g510s_data.mr.g17;
-                case 18: return g510s_data.mr.g18;
-                default: return NULL;
-            }
-        default: return NULL;
-    }
-}
 
 // GetMacro handler: expects (ii) for mode, index
 static gboolean on_handle_get_macro(GDBusConnection *connection, const gchar *sender, const gchar *object_path,
@@ -653,7 +390,7 @@ static gboolean on_handle_get_macro(GDBusConnection *connection, const gchar *se
                                    GDBusMethodInvocation *invocation, gpointer user_data) {
     int mode, idx;
     g_variant_get(parameters, "(ii)", &mode, &idx);
-    char *macro = get_macro_by_index(mode, idx);
+    char *macro = macro_by_index(mode, idx);
     if (!macro) {
         g_dbus_method_invocation_return_error(invocation, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Invalid mode or index");
         return TRUE;
@@ -668,7 +405,7 @@ static gboolean on_handle_set_macro(GDBusConnection *connection, const gchar *se
     int mode, idx;
     const char *value;
     g_variant_get(parameters, "(iis)", &mode, &idx, &value);
-    char *macro = get_macro_by_index(mode, idx);
+    char *macro = macro_by_index(mode, idx);
     if (!macro) {
         g_dbus_method_invocation_return_error(invocation, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Invalid mode or index");
         return TRUE;
@@ -687,7 +424,7 @@ static gboolean on_handle_run_macro(GDBusConnection *connection, const gchar *se
                                    GDBusMethodInvocation *invocation, gpointer user_data) {
     int mode, idx;
     g_variant_get(parameters, "(ii)", &mode, &idx);
-    char *macro = get_macro_by_index(mode, idx);
+    char *macro = macro_by_index(mode, idx);
     if (!macro) {
         g_dbus_method_invocation_return_error(invocation, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Invalid mode or index");
         return TRUE;
@@ -1102,8 +839,8 @@ void on_save_preset_clicked(GtkButton *button, gpointer user_data) {
             load_presets();
             gtk_combo_box_text_remove_all(preset_combo);
             gtk_combo_box_text_append_text(preset_combo, "None");
-            for (int i = 0; i < bank_config_count; i++) {
-                gtk_combo_box_text_append_text(preset_combo, bank_configs[i].name);
+            for (int i = 0; i < preset_count(); i++) {
+                gtk_combo_box_text_append_text(preset_combo, preset_name_at(i));
             }
             gtk_combo_box_set_active(GTK_COMBO_BOX(preset_combo), 0);
             
@@ -1121,9 +858,9 @@ void on_save_preset_clicked(GtkButton *button, gpointer user_data) {
                     gtk_combo_box_text_remove_all(bank_combo);
                     gtk_combo_box_text_append_text(bank_combo, "None");
                     int active_idx = 0;
-                    for (int i = 0; i < bank_config_count; i++) {
-                        gtk_combo_box_text_append_text(bank_combo, bank_configs[i].name);
-                        if (strcmp(bank_configs[i].name, current) == 0) {
+                    for (int i = 0; i < preset_count(); i++) {
+                        gtk_combo_box_text_append_text(bank_combo, preset_name_at(i));
+                        if (strcmp(preset_name_at(i), current) == 0) {
                             active_idx = i + 1;
                         }
                     }
@@ -1316,6 +1053,7 @@ int main(int argc, char *argv[]) {
   
   // init data structure
   init_data();
+  g510s_pvars_init();
   
   // init lcd list
   lcdlist_t *lcdlist = lcdlist_init();
@@ -1381,6 +1119,9 @@ int main(int argc, char *argv[]) {
   bank2_preset_combo = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "bank2_preset_combo"));
   bank3_preset_combo = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "bank3_preset_combo"));
   bank4_preset_combo = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "bank4_preset_combo"));
+
+  // Let g510s-presets.c push loaded scripts into the editor
+  ui_display_script_changed = gtk_display_script_changed;
   
   // Setup preview drawing area
   if (display_preview) {
@@ -1419,8 +1160,8 @@ int main(int argc, char *argv[]) {
   // Setup preset combos
   if (preset_combo) {
       gtk_combo_box_text_append_text(preset_combo, "None");
-      for (int i = 0; i < bank_config_count; i++) {
-          gtk_combo_box_text_append_text(preset_combo, bank_configs[i].name);
+      for (int i = 0; i < preset_count(); i++) {
+          gtk_combo_box_text_append_text(preset_combo, preset_name_at(i));
       }
       gtk_combo_box_set_active(GTK_COMBO_BOX(preset_combo), 0);
   }
@@ -1433,9 +1174,9 @@ int main(int argc, char *argv[]) {
           const char *current = get_bank_preset(bank);
           gtk_combo_box_text_append_text(bank_combos[b], "None");
           int active_idx = 0;
-          for (int i = 0; i < bank_config_count; i++) {
-              gtk_combo_box_text_append_text(bank_combos[b], bank_configs[i].name);
-              if (strcmp(bank_configs[i].name, current) == 0) {
+          for (int i = 0; i < preset_count(); i++) {
+              gtk_combo_box_text_append_text(bank_combos[b], preset_name_at(i));
+              if (strcmp(preset_name_at(i), current) == 0) {
                   active_idx = i + 1;
               }
           }
